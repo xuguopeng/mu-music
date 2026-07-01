@@ -11,3 +11,5 @@
 - NAS Agent Server 增加 CORS 允许规则，方便 Tauri/Web 预览直接读取 `https://os.xuguopeng.com/v1/music/*`。
 - 音乐工作台升级为可操作版本：支持搜索歌曲、查看歌曲详情、播放/暂停/上一首/下一首、创建歌单、把选中歌曲加入歌单。
 - 聊天 Agent 增加第一批 `@音乐` 命令：搜索、播放、暂停、上一首、下一首、创建歌单，并把动作写入流程日志。
+- 修复音乐模块在 Tauri WebView 中请求 NAS 可能出现 `Load failed`：桌面端音乐/NAS JSON 请求改为走 Rust `nas_json_request` 桥接，浏览器预览继续使用 fetch fallback。
+- 修复底部流程日志高度和滚动布局；歌曲详情不再展示整段 JSON，歌词和音频信息分区显示。

@@ -2201,18 +2201,18 @@ export async function checkNasServer(serverUrl: string): Promise<NasServerStatus
 export async function getDaoliyuAuthStatus(serverUrl?: string): Promise<DaoliyuAuthStatus> {
   const baseUrl = serverUrl ? normalizeServerUrl(serverUrl) : (await getNasServerConfig()).serverUrl;
   try {
-    const response = await fetch(`${baseUrl}/v1/music/auth/status`);
-    if (!response.ok) {
+    const body = await fetchNasJson(`${baseUrl}/v1/music/auth/status`);
+    if (isRecord(body) && body.status === "error" && body.httpStatus) {
       return {
         status: "error",
         configured: false,
         secretFilesLoaded: 0,
         baseUrl: "",
         user: null,
-        message: `Daoliyu 登录状态返回 HTTP ${response.status}`,
+        message: `Daoliyu 登录状态返回 HTTP ${body.httpStatus}`,
       };
     }
-    return normalizeDaoliyuAuthStatus(await response.json());
+    return normalizeDaoliyuAuthStatus(body);
   } catch (error) {
     return {
       status: "error",
@@ -2228,10 +2228,10 @@ export async function getDaoliyuAuthStatus(serverUrl?: string): Promise<DaoliyuA
 export async function loginDaoliyu(serverUrl?: string): Promise<DaoliyuAuthStatus> {
   const baseUrl = serverUrl ? normalizeServerUrl(serverUrl) : (await getNasServerConfig()).serverUrl;
   try {
-    const response = await fetch(`${baseUrl}/v1/music/auth/login`, {
+    const body = await fetchNasJson(`${baseUrl}/v1/music/auth/login`, {
       method: "POST",
     });
-    return normalizeDaoliyuAuthStatus(await response.json());
+    return normalizeDaoliyuAuthStatus(body);
   } catch (error) {
     return {
       status: "error",
@@ -2677,6 +2677,16 @@ async function fetchNasJson(
   url: string,
   options: { body?: unknown; method?: string } = {},
 ): Promise<unknown> {
+  if (isTauriRuntime()) {
+    return await invoke<unknown>("nas_json_request", {
+      input: {
+        body: options.body ?? null,
+        method: options.method ?? "GET",
+        url,
+      },
+    });
+  }
+
   try {
     const response = await fetch(url, {
       body: options.body === undefined ? undefined : JSON.stringify(options.body),

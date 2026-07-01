@@ -184,6 +184,14 @@ struct ChatCompletionResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NasJsonRequest {
+    url: String,
+    method: Option<String>,
+    body: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
 struct ChatCompletionChoice {
     message: ChatCompletionMessage,
 }
@@ -2520,6 +2528,42 @@ fn scan_external_assets(state: State<AppState>) -> Result<Vec<ExternalAsset>, St
 }
 
 #[tauri::command]
+fn nas_json_request(input: NasJsonRequest) -> Result<serde_json::Value, String> {
+    let method = input
+        .method
+        .unwrap_or_else(|| "GET".to_string())
+        .to_uppercase();
+    let method = reqwest::Method::from_bytes(method.as_bytes())
+        .map_err(|error| format!("Invalid NAS request method: {error}"))?;
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()
+        .map_err(|error| format!("Failed to create NAS HTTP client: {error}"))?;
+    let mut request = client.request(method, input.url);
+    if let Some(body) = input.body {
+        request = request.json(&body);
+    }
+    let response = request
+        .send()
+        .map_err(|error| format!("NAS request failed: {error}"))?;
+    let status = response.status();
+    let text = response
+        .text()
+        .map_err(|error| format!("Failed to read NAS response: {error}"))?;
+    let body = serde_json::from_str::<serde_json::Value>(&text)
+        .unwrap_or_else(|_| serde_json::Value::String(text));
+    if !status.is_success() {
+        return Ok(serde_json::json!({
+            "status": "error",
+            "httpStatus": status.as_u16(),
+            "message": format!("HTTP {}", status.as_u16()),
+            "body": body,
+        }));
+    }
+    Ok(body)
+}
+
+#[tauri::command]
 fn list_skill_sources(state: State<AppState>) -> Result<Vec<SkillSource>, String> {
     let conn = open_connection(&state.db_path)?;
     let mut stmt = conn
@@ -2646,6 +2690,7 @@ pub fn run() {
             get_nas_server_config,
             save_nas_server_config,
             check_nas_server,
+            nas_json_request,
             list_external_assets,
             scan_external_assets,
             list_skill_sources,
@@ -6154,5 +6199,18 @@ mod tests {
             "connected" | "not_running" | "error"
         ));
         assert!(!status.message.is_empty());
+    }
+
+    #[test]
+    fn nas_json_request_rejects_invalid_method() {
+        let result = nas_json_request(NasJsonRequest {
+            url: "https://os.xuguopeng.com/health".to_string(),
+            method: Some("not a method".to_string()),
+            body: None,
+        });
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("Invalid NAS request method"));
     }
 }

@@ -2715,9 +2715,9 @@ function App() {
           </div>
 
           <section
-            className={`${logHeight} mt-3 overflow-hidden rounded-md border border-zinc-200 bg-white transition-all`}
+            className={`${logHeight} mt-3 flex min-h-0 flex-col overflow-hidden rounded-md border border-zinc-200 bg-white transition-all`}
           >
-            <div className="flex h-12 items-center justify-between border-b border-zinc-200 px-4">
+            <div className="flex h-12 shrink-0 items-center justify-between border-b border-zinc-200 px-4">
               <div className="flex items-center gap-2">
                 <LayoutDashboard className="h-4 w-4 text-zinc-600" />
                 <span className="text-sm font-semibold">流程日志</span>
@@ -2772,25 +2772,27 @@ function App() {
               </div>
             </div>
             {logMode !== "collapsed" && (
-              <ProcessLog
-                activeTaskSessionId={activeTaskSessionId}
-                executionQueue={executionQueue}
-                filters={taskSessionFilters}
-                onExecutionQueueOpen={() => setActiveModule("settings")}
-                onFillChat={(command) => {
-                  setIsChatOpen(true);
-                  setPendingChatDraft({ command, id: makeUiId() });
-                }}
-                pendingFocusRequest={pendingLogFocusRequest}
-                onStatusChange={updateActiveTaskStatus}
-                onTitleChange={renameTaskSession}
-                onTaskSelect={focusTaskSession}
-                onTaskRefresh={focusTaskSession}
-                onPublishingDraftsChange={refreshPublishingDrafts}
-                onFiltersChange={updateTaskSessionFilters}
-                sessions={taskSessions}
-                steps={taskSteps}
-              />
+              <div className="min-h-0 flex-1">
+                <ProcessLog
+                  activeTaskSessionId={activeTaskSessionId}
+                  executionQueue={executionQueue}
+                  filters={taskSessionFilters}
+                  onExecutionQueueOpen={() => setActiveModule("settings")}
+                  onFillChat={(command) => {
+                    setIsChatOpen(true);
+                    setPendingChatDraft({ command, id: makeUiId() });
+                  }}
+                  pendingFocusRequest={pendingLogFocusRequest}
+                  onStatusChange={updateActiveTaskStatus}
+                  onTitleChange={renameTaskSession}
+                  onTaskSelect={focusTaskSession}
+                  onTaskRefresh={focusTaskSession}
+                  onPublishingDraftsChange={refreshPublishingDrafts}
+                  onFiltersChange={updateTaskSessionFilters}
+                  sessions={taskSessions}
+                  steps={taskSteps}
+                />
+              </div>
             )}
           </section>
         </section>
@@ -3646,8 +3648,22 @@ function MusicWorkspace({
           ) : (
             <div className="text-sm text-zinc-500">暂无当前播放信息</div>
           )}
-          <div className="mt-3">
-            <JsonSummary value={player ?? overview?.player ?? null} />
+          <div className="mt-3 grid gap-2 md:grid-cols-3">
+            <InfoPill
+              label="播放状态"
+              value={musicPlayerIsPlaying(player) ? "播放中" : "已暂停"}
+            />
+            <InfoPill
+              label="进度"
+              value={formatDuration(isRecord(player?.state) ? player.state.positionSeconds : 0)}
+            />
+            <InfoPill
+              label="音量"
+              value={formatVolume(isRecord(player?.state) ? player.state.volume : null)}
+            />
+          </div>
+          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">
+            当前按钮会把播放指令发送给 Daoliyu 服务端。PC 应用内真实出声还需要 Daoliyu 提供稳定的音频流地址，下一步单独接。
           </div>
         </MusicPanel>
       </div>
@@ -3661,7 +3677,8 @@ function MusicWorkspace({
                 <InfoPill label="格式" value={String(selectedTrack.fileFormat ?? "未知")} />
                 <InfoPill label="播放次数" value={String(selectedTrack.playCount ?? 0)} />
               </div>
-              <JsonSummary value={selectedTrack} />
+              <MusicLyrics track={selectedTrack} />
+              <MusicMetadata track={selectedTrack} />
             </div>
           ) : (
             <div className="text-sm text-zinc-500">选择一首歌后查看详情</div>
@@ -3850,14 +3867,52 @@ function MusicCover({ track }: { track: MusicTrack }) {
   );
 }
 
-function JsonSummary({ value }: { value: unknown }) {
-  if (!value) {
-    return <div className="text-sm text-zinc-500">暂无数据</div>;
+function MusicLyrics({ track }: { track: MusicTrack }) {
+  const lyrics = typeof track.lyrics === "string" ? track.lyrics.trim() : "";
+  if (!lyrics) {
+    return (
+      <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-500">
+        暂无歌词
+      </div>
+    );
   }
   return (
-    <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded bg-zinc-50 p-3 text-xs text-zinc-600">
-      {JSON.stringify(value, null, 2)}
-    </pre>
+    <div className="rounded-md border border-zinc-200 bg-white">
+      <div className="border-b border-zinc-200 px-3 py-2 text-sm font-semibold">
+        歌词
+      </div>
+      <pre className="pane-scroll max-h-72 overflow-auto whitespace-pre-wrap break-words p-3 text-sm leading-7 text-zinc-700">
+        {lyrics}
+      </pre>
+    </div>
+  );
+}
+
+function MusicMetadata({ track }: { track: MusicTrack }) {
+  const rows = [
+    ["歌曲 ID", track.id],
+    ["专辑", isRecord(track.album) ? track.album.title : track.album],
+    ["专辑艺人", track.albumArtist],
+    ["文件路径", track.filePath],
+    ["码率", track.bitrate],
+    ["采样率", track.sampleRate],
+    ["更新时间", track.updatedAt],
+  ].filter(([, value]) => value !== undefined && value !== null && String(value).trim());
+
+  return (
+    <div className="rounded-md border border-zinc-200 bg-white">
+      <div className="border-b border-zinc-200 px-3 py-2 text-sm font-semibold">
+        音频信息
+      </div>
+      <div className="divide-y divide-zinc-100">
+        {rows.map(([label, value]) => (
+          <div className="grid grid-cols-[88px_1fr] gap-3 px-3 py-2 text-xs" key={String(label)}>
+            <div className="text-zinc-500">{String(label)}</div>
+            <div className="min-w-0 break-words text-zinc-700">{String(value)}</div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -3914,6 +3969,11 @@ function extractCurrentMusicTrack(player: Record<string, unknown> | null) {
   return current;
 }
 
+function musicPlayerIsPlaying(player: Record<string, unknown> | null) {
+  const state = player && isRecord(player.state) ? player.state : null;
+  return Boolean(state?.isPlaying ?? player?.isPlaying);
+}
+
 function musicCoverUrl(track: MusicTrack) {
   const raw = String(track.coverArtUrl ?? "");
   if (!raw) return "";
@@ -3928,6 +3988,12 @@ function formatDuration(value: unknown) {
   const minutes = Math.floor(total / 60);
   const seconds = Math.floor(total % 60);
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+function formatVolume(value: unknown) {
+  const volume = Number(value);
+  if (!Number.isFinite(volume)) return "未知";
+  return `${Math.round(volume <= 1 ? volume * 100 : volume)}%`;
 }
 
 function daoliyuAuthLabel(status: MusicOverview["auth"]["status"] | "unknown") {
@@ -9534,7 +9600,7 @@ function ProcessLog({
 
   if (steps.length === 0 && sessions.length === 0) {
     return (
-      <div className="grid h-[calc(100%-3rem)] place-items-center p-4 text-center text-sm text-zinc-500">
+      <div className="grid h-full place-items-center p-4 text-center text-sm text-zinc-500">
         还没有任务日志。可以在聊天里输入 `@博客 测试发布草稿` 先跑一条模拟任务。
       </div>
     );
@@ -9665,8 +9731,8 @@ function ProcessLog({
   };
 
   return (
-    <div className="grid h-[calc(100%-3rem)] min-h-0 grid-cols-[260px_1fr] overflow-hidden">
-      <div className="pane-scroll border-r border-zinc-200 p-3">
+    <div className="grid h-full min-h-0 grid-cols-[260px_1fr] overflow-hidden">
+      <div className="pane-scroll min-h-0 overflow-auto border-r border-zinc-200 p-3">
         <div className="mb-2 text-xs font-medium text-zinc-500">最近任务</div>
         <div className="mb-3 space-y-2">
           <input
