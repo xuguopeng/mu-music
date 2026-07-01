@@ -55,6 +55,8 @@ DAOLIYU_USERNAME=<你的账号>
 DAOLIYU_PASSWORD=<你的密码>
 ```
 
+`DAOLIYU_USERNAME` 可以填写 Daoliyu 登录邮箱。服务端登录时会同时发送 `email` 和 `username` 字段，以适配真实接口。
+
 登录流程：
 
 1. 调用 `POST /v1/music/auth/login`。

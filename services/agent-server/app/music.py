@@ -199,7 +199,7 @@ async def login_daoliyu_with_configured_credentials() -> JSONResponse:
 
     result = await login_daoliyu()
     if result["status"] != "authenticated":
-        return JSONResponse(status_code=502, content=result)
+        return JSONResponse(status_code=200, content=result)
     return JSONResponse(content=safe_auth_status(result))
 
 
@@ -321,6 +321,7 @@ async def login_daoliyu() -> dict[str, Any]:
                 response = await client.post(
                     login_url,
                     json={
+                        "email": settings.daoliyu_username,
                         "username": settings.daoliyu_username,
                         "password": settings.daoliyu_password,
                     },
