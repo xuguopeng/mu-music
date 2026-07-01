@@ -524,6 +524,29 @@ struct PalmierMcpStatus {
     message: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NasServerConfigInput {
+    server_url: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NasServerConfig {
+    server_url: String,
+    updated_at: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NasServerStatus {
+    server_url: String,
+    status: String,
+    message: String,
+    service: Option<String>,
+    database: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ExternalAsset {
@@ -2363,6 +2386,92 @@ fn check_palmier_mcp() -> PalmierMcpStatus {
 }
 
 #[tauri::command]
+fn get_nas_server_config(state: State<AppState>) -> Result<NasServerConfig, String> {
+    let conn = open_connection(&state.db_path)?;
+    read_nas_server_config(&conn)
+}
+
+#[tauri::command]
+fn save_nas_server_config(
+    state: State<AppState>,
+    input: NasServerConfigInput,
+) -> Result<NasServerConfig, String> {
+    let server_url = normalize_server_url(&input.server_url)?;
+    let conn = open_connection(&state.db_path)?;
+    conn.execute(
+        "INSERT INTO app_settings (key, value, updated_at)
+         VALUES ('nas.server_url', ?1, current_timestamp)
+         ON CONFLICT(key) DO UPDATE SET
+            value = excluded.value,
+            updated_at = current_timestamp",
+        params![server_url],
+    )
+    .map_err(|error| format!("Failed to save NAS server URL: {error}"))?;
+    read_nas_server_config(&conn)
+}
+
+#[tauri::command]
+async fn check_nas_server(input: NasServerConfigInput) -> Result<NasServerStatus, String> {
+    let server_url = normalize_server_url(&input.server_url)?;
+    let health_url = format!("{server_url}/health");
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(12))
+        .build()
+        .map_err(|error| format!("Failed to build NAS health client: {error}"))?;
+    let response = match client.get(&health_url).send().await {
+        Ok(response) => response,
+        Err(error) => {
+            return Ok(NasServerStatus {
+                server_url,
+                status: "error".to_string(),
+                message: format!("NAS 服务不可达：{error}"),
+                service: None,
+                database: None,
+            });
+        }
+    };
+    let status_code = response.status();
+    let body = response.text().await.unwrap_or_default();
+    if !status_code.is_success() {
+        return Ok(NasServerStatus {
+            server_url,
+            status: "error".to_string(),
+            message: format!("NAS /health 返回 HTTP {status_code}: {body}"),
+            service: None,
+            database: None,
+        });
+    }
+    let parsed: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+    let service = parsed
+        .get("service")
+        .and_then(|value| value.as_str())
+        .map(|value| value.to_string());
+    let database = parsed
+        .get("database")
+        .and_then(|value| value.as_str())
+        .map(|value| value.to_string());
+    let health_status = parsed
+        .get("status")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    Ok(NasServerStatus {
+        server_url,
+        status: if health_status == "ok" {
+            "connected".to_string()
+        } else {
+            "error".to_string()
+        },
+        message: if health_status == "ok" {
+            "NAS Agent Server 已连接。".to_string()
+        } else {
+            format!("NAS /health 响应异常：{body}")
+        },
+        service,
+        database,
+    })
+}
+
+#[tauri::command]
 fn list_external_assets(
     state: State<AppState>,
     module_key: Option<String>,
@@ -2534,6 +2643,9 @@ pub fn run() {
             has_secret,
             delete_secret,
             check_palmier_mcp,
+            get_nas_server_config,
+            save_nas_server_config,
+            check_nas_server,
             list_external_assets,
             scan_external_assets,
             list_skill_sources,
@@ -2902,6 +3014,37 @@ fn read_ai_setting(conn: &Connection, role: &str) -> Result<AiModelSetting, Stri
         },
     )
     .map_err(|error| format!("Failed to read AI model setting '{role}': {error}"))
+}
+
+fn read_nas_server_config(conn: &Connection) -> Result<NasServerConfig, String> {
+    match conn.query_row(
+        "SELECT value, updated_at FROM app_settings WHERE key = 'nas.server_url'",
+        [],
+        |row| {
+            Ok(NasServerConfig {
+                server_url: row.get(0)?,
+                updated_at: row.get(1)?,
+            })
+        },
+    ) {
+        Ok(config) => Ok(config),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(NasServerConfig {
+            server_url: "https://os.xuguopeng.com".to_string(),
+            updated_at: None,
+        }),
+        Err(error) => Err(format!("Failed to read NAS server config: {error}")),
+    }
+}
+
+fn normalize_server_url(value: &str) -> Result<String, String> {
+    let trimmed = value.trim().trim_end_matches('/').to_string();
+    if trimmed.is_empty() {
+        return Err("NAS 服务地址不能为空".to_string());
+    }
+    if !(trimmed.starts_with("https://") || trimmed.starts_with("http://")) {
+        return Err("NAS 服务地址必须以 http:// 或 https:// 开头".to_string());
+    }
+    Ok(trimmed)
 }
 
 fn read_ai_model_profile(conn: &Connection, id: &str) -> Result<AiModelProfile, String> {

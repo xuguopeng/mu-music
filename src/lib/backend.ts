@@ -270,6 +270,19 @@ export type PalmierMcpStatus = {
   message: string;
 };
 
+export type NasServerConfig = {
+  serverUrl: string;
+  updatedAt: string | null;
+};
+
+export type NasServerStatus = {
+  serverUrl: string;
+  status: "unknown" | "connected" | "error";
+  message: string;
+  service: string | null;
+  database: string | null;
+};
+
 export type CapabilityType = "mcp" | "skill";
 export type CapabilityRiskLevel = "low" | "medium" | "high";
 export type CapabilityConfirmPolicy = "always" | "when_risky" | "never";
@@ -496,6 +509,7 @@ type FallbackState = Omit<BootstrapState, "runtime"> & {
   externalAssets: ExternalAsset[];
   skillSources: SkillSource[];
   moduleBlueprints: ModuleBlueprint[];
+  nasServerConfig: NasServerConfig;
   configuredSecrets: string[];
 };
 
@@ -2090,6 +2104,68 @@ export async function checkPalmierMcp(): Promise<PalmierMcpStatus> {
   };
 }
 
+export async function getNasServerConfig(): Promise<NasServerConfig> {
+  if (isTauriRuntime()) {
+    return await invoke<NasServerConfig>("get_nas_server_config");
+  }
+
+  return readFallbackState().nasServerConfig;
+}
+
+export async function saveNasServerConfig(serverUrl: string): Promise<NasServerConfig> {
+  if (isTauriRuntime()) {
+    return await invoke<NasServerConfig>("save_nas_server_config", {
+      input: { serverUrl },
+    });
+  }
+
+  const config = {
+    serverUrl: normalizeServerUrl(serverUrl),
+    updatedAt: new Date().toISOString(),
+  };
+  const state = readFallbackState();
+  writeFallbackState({ ...state, nasServerConfig: config });
+  return config;
+}
+
+export async function checkNasServer(serverUrl: string): Promise<NasServerStatus> {
+  if (isTauriRuntime()) {
+    return await invoke<NasServerStatus>("check_nas_server", {
+      input: { serverUrl },
+    });
+  }
+
+  try {
+    const normalized = normalizeServerUrl(serverUrl);
+    const response = await fetch(`${normalized}/health`);
+    if (!response.ok) {
+      return {
+        serverUrl: normalized,
+        status: "error",
+        message: `NAS /health 返回 HTTP ${response.status}`,
+        service: null,
+        database: null,
+      };
+    }
+    const body = await response.json();
+    return {
+      serverUrl: normalized,
+      status: body.status === "ok" ? "connected" : "error",
+      message: body.status === "ok" ? "NAS Agent Server 已连接。" : "NAS /health 响应异常。",
+      service: body.service ?? null,
+      database: body.database ?? null,
+    };
+  } catch (error) {
+    return {
+      serverUrl,
+      status: "error",
+      message: `浏览器预览模式检测 NAS 失败：${error instanceof Error ? error.message : String(error)}`,
+      service: null,
+      database: null,
+    };
+  }
+}
+
 export async function listExternalAssets(moduleKey?: string): Promise<ExternalAsset[]> {
   if (isTauriRuntime()) {
     return await invoke<ExternalAsset[]>("list_external_assets", {
@@ -2191,6 +2267,7 @@ function readFallbackState(): FallbackState {
       externalAssets: parsed.externalAssets || fallbackExternalAssets,
       skillSources: parsed.skillSources || [],
       moduleBlueprints: parsed.moduleBlueprints || fallbackModuleBlueprints,
+      nasServerConfig: parsed.nasServerConfig || makeDefaultNasServerConfig(),
       configuredSecrets: parsed.configuredSecrets || [],
     };
     return withComputedCounts(state);
@@ -2318,6 +2395,7 @@ function makeDefaultFallbackState(): FallbackState {
     externalAssets: fallbackExternalAssets,
     skillSources: [],
     moduleBlueprints: fallbackModuleBlueprints,
+    nasServerConfig: makeDefaultNasServerConfig(),
     configuredSecrets: [],
   };
 }
@@ -2337,6 +2415,22 @@ function withComputedCounts(state: FallbackState): FallbackState {
 
 function makeId() {
   return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+}
+
+function makeDefaultNasServerConfig(): NasServerConfig {
+  return {
+    serverUrl: "https://os.xuguopeng.com",
+    updatedAt: null,
+  };
+}
+
+function normalizeServerUrl(value: string) {
+  const normalized = value.trim().replace(/\/+$/, "");
+  if (!normalized) throw new Error("NAS 服务地址不能为空");
+  if (!/^https?:\/\//.test(normalized)) {
+    throw new Error("NAS 服务地址必须以 http:// 或 https:// 开头");
+  }
+  return normalized;
 }
 
 function cleanChatSessionTitle(title?: string) {

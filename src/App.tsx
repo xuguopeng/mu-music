@@ -53,6 +53,8 @@ import {
   MemoryCandidateType,
   MemoryItem,
   MemoryItemFilters,
+  NasServerConfig,
+  NasServerStatus,
   PalmierMcpStatus,
   PublishingChannel,
   PublishingChannelType,
@@ -67,6 +69,7 @@ import {
   appendTaskStep,
   appendChatMessage,
   approveMemoryCandidate,
+  checkNasServer,
   checkPalmierMcp,
   createChatSession,
   createExecutionQueueItem,
@@ -84,6 +87,7 @@ import {
   deleteSecret,
   getBootstrapState,
   getMemorySourceContext,
+  getNasServerConfig,
   listAiModelProfiles,
   listChatMessages,
   listChatSessions,
@@ -104,6 +108,7 @@ import {
   saveAiModelProfile,
   saveCapability,
   saveKnowledgeItem,
+  saveNasServerConfig,
   savePublishingChannel,
   saveSecret,
   searchChatMessages,
@@ -417,6 +422,17 @@ function App() {
     status: "unknown",
     message: "尚未检测 Palmier Pro MCP。",
   });
+  const [nasConfig, setNasConfig] = useState<NasServerConfig>({
+    serverUrl: "https://os.xuguopeng.com",
+    updatedAt: null,
+  });
+  const [nasStatus, setNasStatus] = useState<NasServerStatus>({
+    serverUrl: "https://os.xuguopeng.com",
+    status: "unknown",
+    message: "尚未检测 NAS Agent Server。",
+    service: null,
+    database: null,
+  });
   const [publishingChannels, setPublishingChannels] = useState<
     PublishingChannel[]
   >([]);
@@ -453,6 +469,7 @@ function App() {
     refreshMemoryItems(memoryFilters);
     refreshMemoryCandidates();
     refreshPalmierStatus();
+    refreshNasConfig();
   }, []);
 
   const refreshBootstrap = async () => {
@@ -575,6 +592,26 @@ function App() {
 
   const refreshPalmierStatus = async () => {
     setPalmierStatus(await checkPalmierMcp());
+  };
+
+  const refreshNasConfig = async () => {
+    const config = await getNasServerConfig();
+    setNasConfig(config);
+    setNasStatus((current) => ({
+      ...current,
+      serverUrl: config.serverUrl,
+      message:
+        current.status === "unknown"
+          ? "尚未检测 NAS Agent Server。"
+          : current.message,
+    }));
+  };
+
+  const saveAndCheckNasServer = async (serverUrl: string) => {
+    const config = await saveNasServerConfig(serverUrl);
+    setNasConfig(config);
+    const status = await checkNasServer(config.serverUrl);
+    setNasStatus(status);
   };
 
   const focusTaskSession = async (sessionId: string) => {
@@ -2375,6 +2412,8 @@ function App() {
                 memoryFilters={memoryFilters}
                 memoryCandidates={memoryCandidates}
                 moduleKey={activeModule}
+                nasConfig={nasConfig}
+                nasStatus={nasStatus}
                 onAiProfilesChange={refreshAiProfiles}
                 onCapabilitiesChange={refreshCapabilities}
                 onChannelsChange={refreshPublishingChannels}
@@ -2394,6 +2433,7 @@ function App() {
                 onMemoryToggle={toggleMemoryItem}
                 onModuleAction={runWorkspaceAction}
                 onMemoryCandidatesChange={refreshMemoryCandidates}
+                onNasSaveAndCheck={saveAndCheckNasServer}
                 onTaskSessionFocus={focusTaskSession}
                 onPalmierCheck={refreshPalmierStatus}
                 palmierStatus={palmierStatus}
@@ -2525,6 +2565,8 @@ function Workspace({
   memoryFilters,
   memoryCandidates,
   moduleKey,
+  nasConfig,
+  nasStatus,
   onAiProfilesChange,
   onCapabilitiesChange,
   onChannelsChange,
@@ -2544,6 +2586,7 @@ function Workspace({
   onMemoryToggle,
   onModuleAction,
   onMemoryCandidatesChange,
+  onNasSaveAndCheck,
   onTaskSessionFocus,
   onPalmierCheck,
   palmierStatus,
@@ -2563,6 +2606,8 @@ function Workspace({
   memoryFilters: MemoryItemFilters;
   memoryCandidates: MemoryCandidate[];
   moduleKey: ModuleKey;
+  nasConfig: NasServerConfig;
+  nasStatus: NasServerStatus;
   onAiProfilesChange: () => Promise<void>;
   onCapabilitiesChange: () => Promise<void>;
   onChannelsChange: () => Promise<void>;
@@ -2588,6 +2633,7 @@ function Workspace({
   onMemoryToggle: (memory: MemoryItem) => Promise<void>;
   onModuleAction: (module: ModuleKey, action: WorkspaceAction) => Promise<void>;
   onMemoryCandidatesChange: () => Promise<void>;
+  onNasSaveAndCheck: (serverUrl: string) => Promise<void>;
   onTaskSessionFocus: (sessionId: string) => Promise<void>;
   onPalmierCheck: () => Promise<void>;
   palmierStatus: PalmierMcpStatus;
@@ -2669,6 +2715,11 @@ function Workspace({
             note="外部工具连接，例如 Palmier Pro"
           />
         </div>
+        <NasServerPanel
+          config={nasConfig}
+          onSaveAndCheck={onNasSaveAndCheck}
+          status={nasStatus}
+        />
         <DatabasePanel bootstrap={bootstrap} bootstrapError={bootstrapError} />
         <AiProfilesPanel
           profiles={aiProfiles}
@@ -2949,6 +3000,93 @@ function DatabasePanel({
           label="渠道"
           value={bootstrap?.counts.publishingChannels ?? 0}
         />
+      </div>
+    </div>
+  );
+}
+
+function NasServerPanel({
+  config,
+  onSaveAndCheck,
+  status,
+}: {
+  config: NasServerConfig;
+  onSaveAndCheck: (serverUrl: string) => Promise<void>;
+  status: NasServerStatus;
+}) {
+  const [serverUrl, setServerUrl] = useState(config.serverUrl);
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setServerUrl(config.serverUrl);
+  }, [config.serverUrl]);
+
+  const saveAndCheck = async () => {
+    setChecking(true);
+    setError(null);
+    try {
+      await onSaveAndCheck(serverUrl);
+    } catch (checkError: unknown) {
+      setError(checkError instanceof Error ? checkError.message : String(checkError));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <div className="rounded-md border border-zinc-200 bg-white p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold">NAS Agent Server</div>
+          <div className="mt-1 text-xs text-zinc-500">
+            PC 端连接 NAS 后，记忆、知识库、资产索引和多端任务会逐步迁移到服务端。
+          </div>
+        </div>
+        <span
+          className={`rounded px-2 py-1 text-xs ${nasStatusBadgeClass(status.status)}`}
+        >
+          {nasStatusLabel(status.status)}
+        </span>
+      </div>
+      <div className="mt-3 flex gap-2">
+        <input
+          className="min-w-0 flex-1 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-zinc-400"
+          onChange={(event) => setServerUrl(event.currentTarget.value)}
+          placeholder="https://os.xuguopeng.com"
+          value={serverUrl}
+        />
+        <Button disabled={checking} onClick={saveAndCheck} type="button">
+          <RefreshCw className={`h-4 w-4 ${checking ? "animate-spin" : ""}`} />
+          {checking ? "检测中" : "保存并检测"}
+        </Button>
+      </div>
+      <div className="mt-3 grid gap-2 md:grid-cols-3">
+        <InfoPill label="状态" value={nasStatusLabel(status.status)} />
+        <InfoPill label="服务" value={status.service ?? "未连接"} />
+        <InfoPill label="地址" value={status.serverUrl || config.serverUrl} />
+      </div>
+      <div className="mt-3 rounded bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
+        {error ?? status.message}
+      </div>
+      {status.database && (
+        <div className="mt-2 truncate rounded bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
+          {status.database}
+        </div>
+      )}
+      <div className="mt-2 text-xs text-amber-700">
+        当前公网服务还没有鉴权，下一步要加 token 或设备配对后再承载真实隐私数据。
+      </div>
+    </div>
+  );
+}
+
+function InfoPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded bg-zinc-50 px-3 py-2">
+      <div className="text-[11px] text-zinc-500">{label}</div>
+      <div className="mt-1 truncate text-sm font-semibold text-zinc-800">
+        {value}
       </div>
     </div>
   );
@@ -12541,6 +12679,24 @@ function palmierDot(status: PalmierMcpStatus["status"]) {
     error: "text-rose-500",
   };
   return colors[status];
+}
+
+function nasStatusLabel(status: NasServerStatus["status"]) {
+  const labels: Record<NasServerStatus["status"], string> = {
+    unknown: "未检测",
+    connected: "已连接",
+    error: "连接错误",
+  };
+  return labels[status];
+}
+
+function nasStatusBadgeClass(status: NasServerStatus["status"]) {
+  const classes: Record<NasServerStatus["status"], string> = {
+    unknown: "bg-zinc-100 text-zinc-600",
+    connected: "bg-emerald-50 text-emerald-700",
+    error: "bg-rose-50 text-rose-700",
+  };
+  return classes[status];
 }
 
 function channelTypeLabel(type: PublishingChannelType) {
