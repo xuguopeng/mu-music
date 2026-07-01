@@ -24,7 +24,9 @@ import {
   Maximize2,
   Minus,
   Music,
+  Pause,
   Pencil,
+  Play,
   Plus,
   RadioTower,
   RefreshCw,
@@ -32,6 +34,8 @@ import {
   Search,
   Send,
   Settings,
+  SkipBack,
+  SkipForward,
   Sparkles,
   Trash2,
   Wand2,
@@ -61,7 +65,9 @@ import {
   MemoryCandidateType,
   MemoryItem,
   MemoryItemFilters,
+  MusicPlaylist,
   MusicOverview,
+  MusicTrack,
   NasServerConfig,
   NasServerStatus,
   PalmierMcpStatus,
@@ -75,11 +81,13 @@ import {
   TaskSessionFilters,
   TaskStep,
   aiProfileSecretKey,
+  addTrackToMusicPlaylist,
   appendTaskStep,
   appendChatMessage,
   approveMemoryCandidate,
   checkNasServer,
   checkPalmierMcp,
+  createMusicPlaylist,
   createChatSession,
   createExecutionQueueItem,
   createPublishingDraft,
@@ -97,6 +105,7 @@ import {
   getBootstrapState,
   getMemorySourceContext,
   getMusicOverview,
+  getMusicTrackDetail,
   getNasServerConfig,
   loginDaoliyu,
   listAiModelProfiles,
@@ -112,7 +121,12 @@ import {
   listPublishingRecords,
   listTaskSessions,
   listTaskSteps,
+  pauseMusic,
+  playMusicTrack,
+  playNextMusic,
+  playPreviousMusic,
   publishingSecretKey,
+  searchMusicTracks,
   rejectMemoryCandidate,
   retrieveAgentKnowledge,
   retrieveAgentMemories,
@@ -256,6 +270,14 @@ type KnowledgeDraft = Omit<
   id?: string;
 };
 
+type MusicChatIntent =
+  | { action: "create_playlist"; playlistName: string }
+  | { action: "next" }
+  | { action: "pause" }
+  | { action: "play"; query: string }
+  | { action: "previous" }
+  | { action: "search"; query: string };
+
 type AgentTaskResult =
   | {
       kind: "memory_candidate";
@@ -278,6 +300,16 @@ type AgentTaskResult =
       action: "approve" | "reject";
       candidate?: MemoryCandidate;
       memory?: MemoryItem;
+      error?: string;
+      taskSessionId: string;
+    }
+  | {
+      kind: "music_command";
+      intent: MusicChatIntent;
+      message: string;
+      track?: MusicTrack;
+      tracks?: MusicTrack[];
+      playlist?: MusicPlaylist;
       error?: string;
       taskSessionId: string;
     }
@@ -1068,6 +1100,185 @@ function App() {
       await refreshBootstrap();
       setLogMode("half");
       return { kind: "memory_candidate", candidate, taskSessionId: session.id };
+    }
+
+    const musicIntent = detectMusicChatIntent(message);
+    if (musicIntent) {
+      const session = await createTaskSession({
+        title: message.slice(0, 80),
+        module: "music",
+        status: "completed",
+      });
+      await appendTaskStep({
+        sessionId: session.id,
+        stepType: "music_intent_detected",
+        module: "music",
+        toolName: "music.intent_detector",
+        inputSummary: message,
+        outputSummary: describeMusicChatIntent(musicIntent),
+        status: "success",
+      });
+      try {
+        if (musicIntent.action === "search" || musicIntent.action === "play") {
+          const search = await searchMusicTracks(musicIntent.query, nasConfig.serverUrl);
+          await appendTaskStep({
+            sessionId: session.id,
+            stepType: "music_search_tracks",
+            module: "music",
+            toolName: "music.search_tracks",
+            inputSummary: musicIntent.query,
+            outputSummary: `找到 ${search.items.length} 首歌曲。`,
+            status: search.items.length > 0 ? "success" : "completed",
+          });
+          if (musicIntent.action === "search") {
+            await focusCreatedTaskSession(session.id);
+            setLogMode("half");
+            return {
+              kind: "music_command",
+              intent: musicIntent,
+              message: `已搜索「${musicIntent.query}」，找到 ${search.items.length} 首歌曲。`,
+              tracks: search.items,
+              taskSessionId: session.id,
+            };
+          }
+          const track = search.items[0];
+          if (!track) {
+            await appendTaskStep({
+              sessionId: session.id,
+              stepType: "music_select_track",
+              module: "music",
+              toolName: "music.select_first_track",
+              inputSummary: musicIntent.query,
+              outputSummary: "没有可播放的搜索结果。",
+              status: "error",
+              error: "No music search results",
+            });
+            await focusCreatedTaskSession(session.id);
+            setLogMode("half");
+            return {
+              kind: "music_command",
+              intent: musicIntent,
+              message: `没有找到「${musicIntent.query}」相关歌曲。`,
+              error: "没有搜索结果",
+              taskSessionId: session.id,
+            };
+          }
+          await appendTaskStep({
+            sessionId: session.id,
+            stepType: "music_select_track",
+            module: "music",
+            toolName: "music.select_first_track",
+            inputSummary: musicIntent.query,
+            outputSummary: `${musicItemTitle(track)} / ${musicItemSubtitle(track)}`,
+            status: "success",
+          });
+          const action = await playMusicTrack(musicItemId(track) ?? "", nasConfig.serverUrl);
+          await appendTaskStep({
+            sessionId: session.id,
+            stepType: "music_execute_action",
+            module: "music",
+            toolName: "music.play_track",
+            inputSummary: musicItemId(track) ?? "",
+            outputSummary: action.message,
+            status: action.ok ? "success" : "error",
+            error: action.ok ? null : action.message,
+          });
+          await refreshMusicOverview();
+          await appendTaskStep({
+            sessionId: session.id,
+            stepType: "music_refresh_state",
+            module: "music",
+            toolName: "music.get_overview",
+            inputSummary: "播放后刷新音乐状态",
+            outputSummary: "音乐工作台状态已刷新。",
+            status: "success",
+          });
+          await focusCreatedTaskSession(session.id);
+          setLogMode("half");
+          return {
+            kind: "music_command",
+            intent: musicIntent,
+            message: action.message,
+            track,
+            tracks: search.items,
+            taskSessionId: session.id,
+          };
+        }
+
+        if (musicIntent.action === "create_playlist") {
+          const playlist = await createMusicPlaylist(
+            { isPublic: false, name: musicIntent.playlistName },
+            nasConfig.serverUrl,
+          );
+          await appendTaskStep({
+            sessionId: session.id,
+            stepType: "music_execute_action",
+            module: "music",
+            toolName: "music.create_playlist",
+            inputSummary: musicIntent.playlistName,
+            outputSummary: `已创建歌单：${String(playlist.name ?? musicIntent.playlistName)}`,
+            status: "success",
+          });
+          await refreshMusicOverview();
+          await focusCreatedTaskSession(session.id);
+          setLogMode("half");
+          return {
+            kind: "music_command",
+            intent: musicIntent,
+            message: `已创建歌单：${String(playlist.name ?? musicIntent.playlistName)}`,
+            playlist,
+            taskSessionId: session.id,
+          };
+        }
+
+        const action =
+          musicIntent.action === "pause"
+            ? await pauseMusic(nasConfig.serverUrl)
+            : musicIntent.action === "next"
+              ? await playNextMusic(nasConfig.serverUrl)
+              : await playPreviousMusic(nasConfig.serverUrl);
+        await appendTaskStep({
+          sessionId: session.id,
+          stepType: "music_execute_action",
+          module: "music",
+          toolName: `music.${musicIntent.action}`,
+          inputSummary: describeMusicChatIntent(musicIntent),
+          outputSummary: action.message,
+          status: action.ok ? "success" : "error",
+          error: action.ok ? null : action.message,
+        });
+        await refreshMusicOverview();
+        await focusCreatedTaskSession(session.id);
+        setLogMode("half");
+        return {
+          kind: "music_command",
+          intent: musicIntent,
+          message: action.message,
+          taskSessionId: session.id,
+        };
+      } catch (musicError: unknown) {
+        const errorMessage =
+          musicError instanceof Error ? musicError.message : String(musicError);
+        await appendTaskStep({
+          sessionId: session.id,
+          stepType: "music_execute_action",
+          module: "music",
+          toolName: "music.command_error",
+          inputSummary: describeMusicChatIntent(musicIntent),
+          outputSummary: errorMessage,
+          status: "error",
+          error: errorMessage,
+        });
+        await focusCreatedTaskSession(session.id);
+        setLogMode("half");
+        return {
+          kind: "music_command",
+          intent: musicIntent,
+          message: errorMessage,
+          error: errorMessage,
+          taskSessionId: session.id,
+        };
+      }
     }
 
     const module = inferModuleFromMessage(message, activeModule);
@@ -2692,6 +2903,7 @@ function Workspace({
         onLogin={onMusicLogin}
         onRefresh={onMusicRefresh}
         overview={musicOverview}
+        serverUrl={nasConfig.serverUrl}
       />
     );
   }
@@ -3155,13 +3367,34 @@ function MusicWorkspace({
   onLogin,
   onRefresh,
   overview,
+  serverUrl,
 }: {
   error: string | null;
   onLogin: () => Promise<void>;
   onRefresh: () => Promise<void>;
   overview: MusicOverview | null;
+  serverUrl: string;
 }) {
-  const [busyAction, setBusyAction] = useState<"login" | "refresh" | null>(null);
+  const [busyAction, setBusyAction] = useState<
+    | "add"
+    | "create_playlist"
+    | "detail"
+    | "login"
+    | "next"
+    | "pause"
+    | "play"
+    | "previous"
+    | "refresh"
+    | "search"
+    | null
+  >(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<MusicTrack[]>([]);
+  const [selectedTrack, setSelectedTrack] = useState<MusicTrack | null>(null);
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState("");
+  const [playlistName, setPlaylistName] = useState("");
+  const [playlistDescription, setPlaylistDescription] = useState("");
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
   const auth = overview?.auth;
   const user = auth?.user;
   const userLabel =
@@ -3171,8 +3404,10 @@ function MusicWorkspace({
         ? user.email
         : "未登录";
   const player = isRecord(overview?.player) ? overview?.player : null;
-  const trackItems = extractCollectionItems(overview?.tracks).slice(0, 8);
-  const playlistItems = extractCollectionItems(overview?.playlists).slice(0, 6);
+  const trackItems = extractCollectionItems(overview?.tracks).slice(0, 10);
+  const playlistItems = extractCollectionItems(overview?.playlists).slice(0, 20);
+  const visibleTracks = searchResults.length > 0 ? searchResults : trackItems;
+  const currentTrack = extractCurrentMusicTrack(player);
 
   const runAction = async (action: "login" | "refresh") => {
     setBusyAction(action);
@@ -3182,6 +3417,107 @@ function MusicWorkspace({
       } else {
         await onRefresh();
       }
+      setActionMessage(action === "login" ? "服务端登录完成" : "音乐状态已刷新");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const runSearch = async (event?: FormEvent) => {
+    event?.preventDefault();
+    if (!searchQuery.trim()) return;
+    setBusyAction("search");
+    setActionMessage(null);
+    try {
+      const result = await searchMusicTracks(searchQuery, serverUrl);
+      setSearchResults(result.items);
+      setActionMessage(`找到 ${result.items.length} 首歌曲`);
+      if (result.items[0]) setSelectedTrack(result.items[0]);
+    } catch (searchError: unknown) {
+      setActionMessage(searchError instanceof Error ? searchError.message : String(searchError));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const selectTrack = async (track: MusicTrack) => {
+    const trackId = musicItemId(track);
+    setSelectedTrack(track);
+    if (!trackId) return;
+    setBusyAction("detail");
+    setActionMessage(null);
+    try {
+      const detail = await getMusicTrackDetail(trackId, serverUrl);
+      if (detail) setSelectedTrack(detail);
+    } catch (detailError: unknown) {
+      setActionMessage(detailError instanceof Error ? detailError.message : String(detailError));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const runPlayerAction = async (
+    action: "next" | "pause" | "play" | "previous",
+    track: MusicTrack | null = selectedTrack,
+  ) => {
+    setBusyAction(action);
+    setActionMessage(null);
+    try {
+      const result =
+        action === "play"
+          ? await playMusicTrack(musicItemId(track) ?? "", serverUrl)
+          : action === "pause"
+            ? await pauseMusic(serverUrl)
+            : action === "next"
+              ? await playNextMusic(serverUrl)
+              : await playPreviousMusic(serverUrl);
+      setActionMessage(result.message);
+      await onRefresh();
+    } catch (actionError: unknown) {
+      setActionMessage(actionError instanceof Error ? actionError.message : String(actionError));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const createPlaylist = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusyAction("create_playlist");
+    setActionMessage(null);
+    try {
+      const playlist = await createMusicPlaylist(
+        {
+          description: playlistDescription,
+          isPublic: false,
+          name: playlistName,
+        },
+        serverUrl,
+      );
+      setPlaylistName("");
+      setPlaylistDescription("");
+      setSelectedPlaylistId(String(playlist.id ?? ""));
+      setActionMessage(`已创建歌单：${String(playlist.name ?? playlistName)}`);
+      await onRefresh();
+    } catch (playlistError: unknown) {
+      setActionMessage(playlistError instanceof Error ? playlistError.message : String(playlistError));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const addSelectedTrackToPlaylist = async () => {
+    setBusyAction("add");
+    setActionMessage(null);
+    try {
+      const result = await addTrackToMusicPlaylist(
+        selectedPlaylistId,
+        musicItemId(selectedTrack) ?? "",
+        serverUrl,
+      );
+      setActionMessage(result.message || "已加入歌单");
+      await onRefresh();
+    } catch (addError: unknown) {
+      setActionMessage(addError instanceof Error ? addError.message : String(addError));
     } finally {
       setBusyAction(null);
     }
@@ -3234,21 +3570,148 @@ function MusicWorkspace({
           <KeyRound className="h-4 w-4" />
           服务端登录
         </Button>
+        <Button
+          disabled={busyAction !== null}
+          onClick={() => runPlayerAction("previous")}
+          type="button"
+          variant="outline"
+        >
+          <SkipBack className="h-4 w-4" />
+          上一首
+        </Button>
+        <Button
+          disabled={busyAction !== null || !selectedTrack}
+          onClick={() => runPlayerAction("play")}
+          type="button"
+        >
+          <Play className="h-4 w-4" />
+          播放选中
+        </Button>
+        <Button
+          disabled={busyAction !== null}
+          onClick={() => runPlayerAction("pause")}
+          type="button"
+          variant="outline"
+        >
+          <Pause className="h-4 w-4" />
+          暂停
+        </Button>
+        <Button
+          disabled={busyAction !== null}
+          onClick={() => runPlayerAction("next")}
+          type="button"
+          variant="outline"
+        >
+          <SkipForward className="h-4 w-4" />
+          下一首
+        </Button>
       </div>
       {error && (
         <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
           {error}
         </div>
       )}
-      <div className="grid gap-3 xl:grid-cols-3">
-        <MusicPanel title="播放器状态">
-          <JsonSummary value={player ?? overview?.player ?? null} />
+      {actionMessage && (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+          {actionMessage}
+        </div>
+      )}
+      <div className="grid gap-3 xl:grid-cols-[1.1fr_1fr]">
+        <MusicPanel title="搜索歌曲">
+          <form className="flex gap-2" onSubmit={runSearch}>
+            <input
+              className="min-w-0 flex-1 rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+              onChange={(event) => setSearchQuery(event.currentTarget.value)}
+              placeholder="搜索歌曲、歌手或专辑"
+              value={searchQuery}
+            />
+            <Button disabled={busyAction !== null || !searchQuery.trim()} type="submit">
+              <Search className="h-4 w-4" />
+              搜索
+            </Button>
+          </form>
+          <div className="mt-3 max-h-96 space-y-2 overflow-auto">
+            <MusicTrackList
+              empty="还没有歌曲，先搜索或刷新音乐状态"
+              items={visibleTracks}
+              onPlay={(track) => runPlayerAction("play", track)}
+              onSelect={selectTrack}
+              selectedId={musicItemId(selectedTrack)}
+            />
+          </div>
         </MusicPanel>
-        <MusicPanel title="曲目预览">
-          <MusicItemList empty="还没有读到曲目" items={trackItems} />
+        <MusicPanel title="当前播放">
+          {currentTrack ? (
+            <MusicTrackSummary track={currentTrack} />
+          ) : (
+            <div className="text-sm text-zinc-500">暂无当前播放信息</div>
+          )}
+          <div className="mt-3">
+            <JsonSummary value={player ?? overview?.player ?? null} />
+          </div>
         </MusicPanel>
-        <MusicPanel title="歌单预览">
-          <MusicItemList empty="还没有读到歌单" items={playlistItems} />
+      </div>
+      <div className="grid gap-3 xl:grid-cols-[1fr_1fr]">
+        <MusicPanel title="歌曲详情">
+          {selectedTrack ? (
+            <div className="space-y-3">
+              <MusicTrackSummary track={selectedTrack} />
+              <div className="grid gap-2 md:grid-cols-3">
+                <InfoPill label="时长" value={formatDuration(selectedTrack.durationSeconds)} />
+                <InfoPill label="格式" value={String(selectedTrack.fileFormat ?? "未知")} />
+                <InfoPill label="播放次数" value={String(selectedTrack.playCount ?? 0)} />
+              </div>
+              <JsonSummary value={selectedTrack} />
+            </div>
+          ) : (
+            <div className="text-sm text-zinc-500">选择一首歌后查看详情</div>
+          )}
+        </MusicPanel>
+        <MusicPanel title="歌单操作">
+          <form className="space-y-2" onSubmit={createPlaylist}>
+            <input
+              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+              onChange={(event) => setPlaylistName(event.currentTarget.value)}
+              placeholder="新歌单名称"
+              value={playlistName}
+            />
+            <input
+              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+              onChange={(event) => setPlaylistDescription(event.currentTarget.value)}
+              placeholder="描述，可不填"
+              value={playlistDescription}
+            />
+            <Button disabled={busyAction !== null || !playlistName.trim()} type="submit">
+              <Plus className="h-4 w-4" />
+              创建歌单
+            </Button>
+          </form>
+          <div className="mt-4 space-y-2">
+            <select
+              className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+              onChange={(event) => setSelectedPlaylistId(event.currentTarget.value)}
+              value={selectedPlaylistId}
+            >
+              <option value="">选择歌单</option>
+              {playlistItems.map((playlist) => (
+                <option key={musicItemId(playlist) ?? musicItemTitle(playlist)} value={musicItemId(playlist) ?? ""}>
+                  {musicItemTitle(playlist)}
+                </option>
+              ))}
+            </select>
+            <Button
+              disabled={busyAction !== null || !selectedPlaylistId || !selectedTrack}
+              onClick={addSelectedTrackToPlaylist}
+              type="button"
+              variant="outline"
+            >
+              <Plus className="h-4 w-4" />
+              加入选中歌曲
+            </Button>
+          </div>
+          <div className="mt-4 max-h-64 space-y-2 overflow-auto">
+            <MusicPlaylistList empty="还没有读到歌单" items={playlistItems} />
+          </div>
         </MusicPanel>
       </div>
     </div>
@@ -3272,12 +3735,61 @@ function MusicPanel({
   );
 }
 
-function MusicItemList({
+function MusicTrackList({
+  empty,
+  items,
+  onPlay,
+  onSelect,
+  selectedId,
+}: {
+  empty: string;
+  items: MusicTrack[];
+  onPlay: (track: MusicTrack) => void;
+  onSelect: (track: MusicTrack) => void;
+  selectedId: string | null;
+}) {
+  if (items.length === 0) {
+    return <div className="text-sm text-zinc-500">{empty}</div>;
+  }
+  return (
+    <div className="space-y-2">
+      {items.map((item, index) => (
+        <div
+          className={`flex items-center gap-2 rounded border px-3 py-2 ${
+            musicItemId(item) === selectedId
+              ? "border-zinc-400 bg-zinc-100"
+              : "border-zinc-100 bg-zinc-50"
+          }`}
+          key={String(item.id ?? item.name ?? item.title ?? index)}
+        >
+          <button
+            className="min-w-0 flex-1 text-left"
+            onClick={() => onSelect(item)}
+            type="button"
+          >
+            <div className="truncate text-sm font-medium text-zinc-800">
+              {musicItemTitle(item)}
+            </div>
+            <div className="mt-1 truncate text-xs text-zinc-500">
+              {musicItemSubtitle(item)}
+            </div>
+          </button>
+          <Button onClick={() => onPlay(item)} type="button" variant="outline">
+            <Play className="h-4 w-4" />
+            播放
+          </Button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MusicPlaylistList({
   empty,
   items,
 }: {
   empty: string;
-  items: Record<string, unknown>[];
+  items: MusicPlaylist[];
 }) {
   if (items.length === 0) {
     return <div className="text-sm text-zinc-500">{empty}</div>;
@@ -3287,7 +3799,7 @@ function MusicItemList({
       {items.map((item, index) => (
         <div
           className="rounded border border-zinc-100 bg-zinc-50 px-3 py-2"
-          key={String(item.id ?? item.name ?? item.title ?? index)}
+          key={String(item.id ?? item.name ?? index)}
         >
           <div className="truncate text-sm font-medium text-zinc-800">
             {musicItemTitle(item)}
@@ -3298,6 +3810,43 @@ function MusicItemList({
         </div>
       ))}
     </div>
+  );
+}
+
+function MusicTrackSummary({ track }: { track: MusicTrack }) {
+  return (
+    <div className="flex min-w-0 gap-3">
+      <MusicCover track={track} />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-base font-semibold text-zinc-900">
+          {musicItemTitle(track)}
+        </div>
+        <div className="mt-1 truncate text-sm text-zinc-500">
+          {musicItemSubtitle(track)}
+        </div>
+        <div className="mt-2 truncate text-xs text-zinc-400">
+          {String(track.id ?? "")}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MusicCover({ track }: { track: MusicTrack }) {
+  const url = musicCoverUrl(track);
+  if (!url) {
+    return (
+      <div className="grid h-16 w-16 shrink-0 place-items-center rounded-md bg-zinc-100 text-zinc-400">
+        <Music className="h-5 w-5" />
+      </div>
+    );
+  }
+  return (
+    <img
+      alt=""
+      className="h-16 w-16 shrink-0 rounded-md object-cover"
+      src={url}
+    />
   );
 }
 
@@ -3327,14 +3876,58 @@ function musicItemTitle(item: Record<string, unknown>) {
 }
 
 function musicItemSubtitle(item: Record<string, unknown>) {
+  const artists = Array.isArray(item.artists)
+    ? item.artists
+        .map((entry) =>
+          isRecord(entry) && isRecord(entry.artist)
+            ? entry.artist.name
+            : isRecord(entry)
+              ? entry.name
+              : entry,
+        )
+        .filter(Boolean)
+        .join(" / ")
+    : "";
+  const albumTitle = isRecord(item.album) ? item.album.title : item.album;
   return String(
-    item.artist ??
-      item.owner ??
-      item.album ??
-      item.trackCount ??
-      item.duration ??
+    artists ||
+      item.artist ||
+      item.owner ||
+      item.albumArtist ||
+      albumTitle ||
+      item.trackCount ||
+      item.durationSeconds ||
+      item.duration ||
       "Daoliyu",
   );
+}
+
+function musicItemId(item: Record<string, unknown> | null) {
+  if (!item) return null;
+  return typeof item.id === "string" ? item.id : item.id == null ? null : String(item.id);
+}
+
+function extractCurrentMusicTrack(player: Record<string, unknown> | null) {
+  if (!player) return null;
+  const state = isRecord(player.state) ? player.state : null;
+  const current = state && isRecord(state.currentTrack) ? state.currentTrack : null;
+  return current;
+}
+
+function musicCoverUrl(track: MusicTrack) {
+  const raw = String(track.coverArtUrl ?? "");
+  if (!raw) return "";
+  if (/^https?:\/\//.test(raw)) return raw;
+  if (raw.startsWith("/v1/music/")) return `https://os.xuguopeng.com${raw}`;
+  return `https://os.xuguopeng.com/v1/music${raw.startsWith("/") ? raw : `/${raw}`}`;
+}
+
+function formatDuration(value: unknown) {
+  const total = Number(value);
+  if (!Number.isFinite(total) || total <= 0) return "未知";
+  const minutes = Math.floor(total / 60);
+  const seconds = Math.floor(total % 60);
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
 function daoliyuAuthLabel(status: MusicOverview["auth"]["status"] | "unknown") {
@@ -10891,6 +11484,25 @@ function buildStreamingReply(
     }
     return `${modelLine}\n\n已拒绝记忆候选：\n${result.candidate?.content ?? "未命名候选"}\n\n候选状态已更新，过程已经写到底部流程日志。`;
   }
+  if (result.kind === "music_command") {
+    if (result.error) {
+      return `${modelLine}\n\n音乐命令执行失败：${result.error}\n\n我已经把失败原因写到底部流程日志。`;
+    }
+    const trackLine = result.track
+      ? `\n\n歌曲：${musicItemTitle(result.track)} / ${musicItemSubtitle(result.track)}`
+      : "";
+    const playlistLine = result.playlist
+      ? `\n\n歌单：${musicItemTitle(result.playlist)}`
+      : "";
+    const searchLine =
+      result.tracks && result.tracks.length > 0
+        ? `\n\n搜索结果前 ${Math.min(result.tracks.length, 5)} 首：\n${result.tracks
+            .slice(0, 5)
+            .map((track, index) => `${index + 1}. ${musicItemTitle(track)} / ${musicItemSubtitle(track)}`)
+            .join("\n")}`
+        : "";
+    return `${modelLine}\n\n${result.message}${trackLine}${playlistLine}${searchLine}\n\n音乐动作已经写到底部流程日志，音乐工作台状态也会刷新。`;
+  }
   if (result.modelResult.usedRealModel && result.modelResult.content.trim()) {
     const draftLine = result.blogDraft
       ? `\n\n---\n已同步生成本地博客草稿：${result.blogDraft.title}（${shortId(result.blogDraft.id)}）。${result.blogChecklistGenerated ? " 发布清单也已写入流程日志，可在草稿卡片复制或下载。" : ""}`
@@ -11232,6 +11844,27 @@ function buildChatContextSummary(
       error: result.error ?? null,
     };
   }
+  if (result.kind === "music_command") {
+    return {
+      capabilities: ["Daoliyu 音乐服务"],
+      confirmationRequired: false,
+      confirmationCapabilities: [],
+      memories: [],
+      knowledge: [
+        result.track
+          ? `${musicItemTitle(result.track)} / ${musicItemSubtitle(result.track)}`
+          : result.playlist
+            ? musicItemTitle(result.playlist)
+            : describeMusicChatIntent(result.intent),
+      ],
+      module: "music",
+      modelStatus: result.error ? "音乐命令失败" : "音乐命令已执行",
+      modelLabel,
+      taskSessionId: result.taskSessionId,
+      usedRealModel: false,
+      error: result.error ?? null,
+    };
+  }
 
   const confirmationCapabilities = result.selectedCapabilities
     .filter((capability) => capabilityNeedsConfirmation(capability))
@@ -11313,6 +11946,52 @@ function inferModuleFromMessage(message: string, fallback: ModuleKey) {
     return "image";
   }
   return fallback;
+}
+
+function detectMusicChatIntent(message: string): MusicChatIntent | null {
+  const trimmed = message.trim();
+  if (!trimmed.includes("@音乐") && !trimmed.includes("@听歌")) return null;
+  const command = trimmed
+    .replace(/^@音乐[：:，,。 ]?/, "")
+    .replace(/^@听歌[：:，,。 ]?/, "")
+    .trim();
+  if (!command) return null;
+  if (/(暂停|停一下|先停|pause)/i.test(command)) return { action: "pause" };
+  if (/(下一首|下首|next)/i.test(command)) return { action: "next" };
+  if (/(上一首|上首|prev|previous)/i.test(command)) return { action: "previous" };
+  const playlistMatch = command.match(/^(创建歌单|新建歌单|建歌单)\s*[：:，,。 ]?(.+)$/);
+  if (playlistMatch?.[2]?.trim()) {
+    return { action: "create_playlist", playlistName: playlistMatch[2].trim() };
+  }
+  const searchMatch = command.match(/^(搜索|查找|找|搜)\s*[：:，,。 ]?(.+)$/);
+  if (searchMatch?.[2]?.trim()) {
+    return { action: "search", query: searchMatch[2].trim() };
+  }
+  const playMatch = command.match(/^(播放|放|听)\s*[：:，,。 ]?(.+)$/);
+  if (playMatch?.[2]?.trim()) {
+    return { action: "play", query: playMatch[2].trim() };
+  }
+  if (!/(歌单|列表|状态)/.test(command)) {
+    return { action: "play", query: command };
+  }
+  return null;
+}
+
+function describeMusicChatIntent(intent: MusicChatIntent) {
+  switch (intent.action) {
+    case "create_playlist":
+      return `创建歌单：${intent.playlistName}`;
+    case "next":
+      return "切换到下一首";
+    case "pause":
+      return "暂停播放";
+    case "play":
+      return `搜索并播放：${intent.query}`;
+    case "previous":
+      return "切换到上一首";
+    case "search":
+      return `搜索歌曲：${intent.query}`;
+  }
 }
 
 function detectMemorySearchIntent(message: string): { query: string } | null {

@@ -300,6 +300,21 @@ export type MusicOverview = {
   fetchedAt: string;
 };
 
+export type MusicTrack = Record<string, unknown>;
+export type MusicPlaylist = Record<string, unknown>;
+
+export type MusicSearchResult = {
+  items: MusicTrack[];
+  raw: unknown;
+};
+
+export type MusicActionResult = {
+  ok: boolean;
+  action: string;
+  raw: unknown;
+  message: string;
+};
+
 export type CapabilityType = "mcp" | "skill";
 export type CapabilityRiskLevel = "low" | "medium" | "high";
 export type CapabilityConfirmPolicy = "always" | "when_risky" | "never";
@@ -2246,6 +2261,97 @@ export async function getMusicOverview(serverUrl?: string): Promise<MusicOvervie
   };
 }
 
+export async function searchMusicTracks(
+  query: string,
+  serverUrl?: string,
+): Promise<MusicSearchResult> {
+  const cleaned = query.trim();
+  if (!cleaned) return { items: [], raw: { items: [] } };
+  const baseUrl = serverUrl ? normalizeServerUrl(serverUrl) : (await getNasServerConfig()).serverUrl;
+  const raw = await fetchNasJson(
+    `${baseUrl}/v1/music/api/tracks?search=${encodeURIComponent(cleaned)}&limit=20`,
+  );
+  return {
+    items: extractMusicItems(raw),
+    raw,
+  };
+}
+
+export async function getMusicTrackDetail(
+  trackId: string,
+  serverUrl?: string,
+): Promise<MusicTrack | null> {
+  const cleaned = trackId.trim();
+  if (!cleaned) return null;
+  const baseUrl = serverUrl ? normalizeServerUrl(serverUrl) : (await getNasServerConfig()).serverUrl;
+  const raw = await fetchNasJson(
+    `${baseUrl}/v1/music/api/tracks/${encodeURIComponent(cleaned)}`,
+  );
+  return isRecord(raw) ? raw : null;
+}
+
+export async function playMusicTrack(
+  trackId: string,
+  serverUrl?: string,
+): Promise<MusicActionResult> {
+  return await postMusicAction(
+    "play",
+    "/v1/music/api/player/play",
+    { trackId },
+    serverUrl,
+  );
+}
+
+export async function pauseMusic(serverUrl?: string): Promise<MusicActionResult> {
+  return await postMusicAction("pause", "/v1/music/api/player/pause", {}, serverUrl);
+}
+
+export async function playNextMusic(serverUrl?: string): Promise<MusicActionResult> {
+  return await postMusicAction("next", "/v1/music/api/player/next", {}, serverUrl);
+}
+
+export async function playPreviousMusic(serverUrl?: string): Promise<MusicActionResult> {
+  return await postMusicAction("previous", "/v1/music/api/player/prev", {}, serverUrl);
+}
+
+export async function createMusicPlaylist(
+  input: { name: string; description?: string; isPublic?: boolean },
+  serverUrl?: string,
+): Promise<MusicPlaylist> {
+  const name = input.name.trim();
+  if (!name) throw new Error("歌单名称不能为空");
+  const baseUrl = serverUrl ? normalizeServerUrl(serverUrl) : (await getNasServerConfig()).serverUrl;
+  const raw = await fetchNasJson(`${baseUrl}/v1/music/api/playlists`, {
+    body: {
+      description: input.description?.trim() || null,
+      isPublic: input.isPublic ?? false,
+      name,
+    },
+    method: "POST",
+  });
+  if (!isRecord(raw)) throw new Error("创建歌单返回异常");
+  if (typeof raw.error === "string") throw new Error(raw.error);
+  if (typeof raw.message === "string" && !raw.id) throw new Error(raw.message);
+  return raw;
+}
+
+export async function addTrackToMusicPlaylist(
+  playlistId: string,
+  trackId: string,
+  serverUrl?: string,
+): Promise<MusicActionResult> {
+  const cleanedPlaylistId = playlistId.trim();
+  const cleanedTrackId = trackId.trim();
+  if (!cleanedPlaylistId) throw new Error("请选择歌单");
+  if (!cleanedTrackId) throw new Error("请选择歌曲");
+  return await postMusicAction(
+    "add_to_playlist",
+    `/v1/music/api/playlists/${encodeURIComponent(cleanedPlaylistId)}/tracks`,
+    { trackId: cleanedTrackId },
+    serverUrl,
+  );
+}
+
 export async function listExternalAssets(moduleKey?: string): Promise<ExternalAsset[]> {
   if (isTauriRuntime()) {
     return await invoke<ExternalAsset[]>("list_external_assets", {
@@ -2526,9 +2632,57 @@ function normalizeDaoliyuAuthStatus(input: unknown): DaoliyuAuthStatus {
   };
 }
 
-async function fetchNasJson(url: string): Promise<unknown> {
+async function postMusicAction(
+  action: string,
+  path: string,
+  body: Record<string, unknown>,
+  serverUrl?: string,
+): Promise<MusicActionResult> {
+  const baseUrl = serverUrl ? normalizeServerUrl(serverUrl) : (await getNasServerConfig()).serverUrl;
+  const raw = await fetchNasJson(`${baseUrl}${path}`, {
+    body,
+    method: "POST",
+  });
+  const message = summarizeMusicActionResult(action, raw);
+  return {
+    ok: !isRecord(raw) || (!raw.error && raw.status !== "error"),
+    action,
+    raw,
+    message,
+  };
+}
+
+function summarizeMusicActionResult(action: string, raw: unknown) {
+  if (!isRecord(raw)) return `${action} 已发送`;
+  if (typeof raw.message === "string" && raw.message) return raw.message;
+  if (typeof raw.error === "string" && raw.error) return raw.error;
+  const state = isRecord(raw.state) ? raw.state : raw;
+  const currentTrack = isRecord(state.currentTrack) ? state.currentTrack : null;
+  const title = currentTrack ? String(currentTrack.title ?? "") : "";
+  if (title) return `${action}：${title}`;
+  return `${action} 已完成`;
+}
+
+function extractMusicItems(raw: unknown): MusicTrack[] {
+  if (Array.isArray(raw)) return raw.filter(isRecord);
+  if (!isRecord(raw)) return [];
+  for (const key of ["items", "tracks", "data", "results"]) {
+    const value = raw[key];
+    if (Array.isArray(value)) return value.filter(isRecord);
+  }
+  return [];
+}
+
+async function fetchNasJson(
+  url: string,
+  options: { body?: unknown; method?: string } = {},
+): Promise<unknown> {
   try {
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      headers: options.body === undefined ? undefined : { "Content-Type": "application/json" },
+      method: options.method ?? "GET",
+    });
     const text = await response.text();
     let body: unknown = null;
     try {
