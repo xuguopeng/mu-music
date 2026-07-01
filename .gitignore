@@ -12,6 +12,21 @@ dist
 dist-ssr
 *.local
 
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local databases and generated runtime data
+*.sqlite
+*.sqlite3
+*.db
+data/
+
+# Superpowers local runtime state
+.superpowers/**/state/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
