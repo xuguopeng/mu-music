@@ -90,6 +90,36 @@ CREATE TABLE IF NOT EXISTS task_steps (
     created_at TEXT NOT NULL DEFAULT current_timestamp,
     FOREIGN KEY(session_id) REFERENCES task_sessions(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS music_radio_jobs (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    mode TEXT NOT NULL DEFAULT 'mock',
+    track_ids_json TEXT NOT NULL DEFAULT '[]',
+    script TEXT NOT NULL DEFAULT '',
+    episode_id TEXT,
+    error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT current_timestamp,
+    updated_at TEXT NOT NULL DEFAULT current_timestamp
+);
+
+CREATE TABLE IF NOT EXISTS music_radio_episodes (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    script TEXT NOT NULL DEFAULT '',
+    audio_path TEXT NOT NULL DEFAULT '',
+    outro_audio_path TEXT NOT NULL DEFAULT '',
+    audio_format TEXT NOT NULL DEFAULT '',
+    duration_seconds INTEGER NOT NULL DEFAULT 0,
+    outro_duration_seconds INTEGER NOT NULL DEFAULT 0,
+    source_track_ids_json TEXT NOT NULL DEFAULT '[]',
+    segments_json TEXT NOT NULL DEFAULT '[]',
+    generator TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT current_timestamp,
+    updated_at TEXT NOT NULL DEFAULT current_timestamp
+);
 """
 
 
@@ -114,7 +144,28 @@ def db() -> Iterator[sqlite3.Connection]:
 def initialize_database() -> None:
     with db() as conn:
         conn.executescript(SCHEMA)
+        migrate_database(conn)
         seed_modules(conn)
+
+
+def migrate_database(conn: sqlite3.Connection) -> None:
+    ensure_column(conn, "music_radio_episodes", "outro_audio_path", "TEXT NOT NULL DEFAULT ''")
+    ensure_column(conn, "music_radio_episodes", "outro_duration_seconds", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column(conn, "music_radio_episodes", "segments_json", "TEXT NOT NULL DEFAULT '[]'")
+
+
+def ensure_column(
+    conn: sqlite3.Connection,
+    table_name: str,
+    column_name: str,
+    definition: str,
+) -> None:
+    columns = {
+        row["name"]
+        for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+    if column_name not in columns:
+        conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
 
 
 def seed_modules(conn: sqlite3.Connection) -> None:

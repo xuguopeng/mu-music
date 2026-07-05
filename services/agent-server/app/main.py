@@ -23,6 +23,7 @@ from .repository import (
     scan_default_skills,
 )
 from .music import router as music_router
+from .music import start_radio_scheduler, stop_radio_scheduler
 
 app = FastAPI(title="Personal OS Agent Server", version="0.1.0")
 app.add_middleware(
@@ -37,8 +38,14 @@ active_connections: dict[str, WebSocket] = {}
 
 
 @app.on_event("startup")
-def startup() -> None:
+async def startup() -> None:
     initialize_database()
+    start_radio_scheduler()
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    await stop_radio_scheduler()
 
 
 @app.get("/health", response_model=HealthResponse)

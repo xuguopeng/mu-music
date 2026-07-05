@@ -42,6 +42,13 @@ Environment variables:
 - `DAOLIYU_BASE_URL`: legacy single URL fallback when `DAOLIYU_BASE_URLS` is not set.
 - `DAOLIYU_USERNAME`: optional Daoliyu login email/username for server-side login.
 - `DAOLIYU_PASSWORD`: optional Daoliyu password for server-side login. Do not commit this value.
+- `DAOLIYU_MEDIA_ROOT`: local media root inside this container for real audio playback. Default `/data/media`.
+- `MINIMAX_SUBSCRIPTION_KEY`: MiniMax Token Plan subscription key for radio TTS. Preferred over `MINIMAX_API_KEY`.
+- `MINIMAX_API_KEY`: MiniMax pay-as-you-go API key fallback. Token Plan keys and pay-as-you-go keys are not interchangeable.
+- `MINIMAX_GROUP_ID`: MiniMax group ID used by the TTS endpoint.
+- `MINIMAX_TTS_MODEL`: MiniMax speech model. Default `speech-2.8-hd`.
+- `MINIMAX_TTS_VOICE_ID`: MiniMax voice ID. Default `male-qn-jingying`.
+- `RADIO_OUTPUT_DIR`: generated radio audio directory. Default `/data/radio`.
 
 Secret files:
 
@@ -56,6 +63,12 @@ Example:
 DAOLIYU_USERNAME=your-email@example.com
 DAOLIYU_PASSWORD=your-password
 DAOLIYU_BASE_URLS=http://host.docker.internal:5173,https://daoliyu.xuguopeng.com
+DAOLIYU_MEDIA_ROOT=/data/media
+MINIMAX_SUBSCRIPTION_KEY=your-token-plan-subscription-key
+MINIMAX_GROUP_ID=your-minimax-group-id
+MINIMAX_TTS_MODEL=speech-2.8-hd
+MINIMAX_TTS_VOICE_ID=male-qn-jingying
+RADIO_OUTPUT_DIR=/data/radio
 ```
 
 Real environment variables override values from these files.
@@ -93,3 +106,23 @@ DAOLIYU_BASE_URLS=http://host.docker.internal:5173,https://daoliyu.xuguopeng.com
 ```
 
 If Daoliyu runs as another container, set `DAOLIYU_BASE_URL` to that service URL.
+
+## Real Audio Playback
+
+The PC app plays audio through:
+
+```text
+GET /v1/music/audio/{track_id}
+GET /v1/music/audio/{track_id}/status
+```
+
+Daoliyu track details currently expose `filePath` such as `/data/media/Artist/Album/song.flac`, but the OpenAPI file does not expose a direct stream/download endpoint. For real playback, mount the same music library into this Agent Server container and point `DAOLIYU_MEDIA_ROOT` at that mount. Example Docker volume:
+
+```yaml
+volumes:
+  - /volume1/docker/personal-os-agent/data:/data
+  # Replace the left side with the actual NAS music folder that contains Artist/Album files.
+  - /volume1/music:/data/media:ro
+```
+
+If `/v1/music/audio/{track_id}/status` returns `not_configured`, the app can control Daoliyu playback state, but local PC audio cannot load until the media volume is mounted.

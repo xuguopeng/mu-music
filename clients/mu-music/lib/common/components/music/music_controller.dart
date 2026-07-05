@@ -1,0 +1,507 @@
+/*
+ * @Author: 新西兰的肉夹馍
+ * @Date: 2025-01-27 10:00:00
+ * @LastEditTime: 2025-10-04 17:25:56
+ * @FilePath: /mu-music/lib/common/components/music/music_controller.dart
+ * @Description: 全局音乐播放控制器
+ * 在这个虚拟的空间里，我试图捕捉真实的自我，与世界分享。
+ */
+import 'package:get/get.dart';
+import 'package:mu_music/common/index.dart';
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'dart:async';
+import 'package:just_audio/just_audio.dart';
+
+class GlobalMusicController extends GetxController {
+  // 当前播放的音乐
+  final Rxn<Song> _currentMusic = Rxn<Song>();
+  Song? get currentMusic => _currentMusic.value;
+
+  // 歌词列表
+  final RxList<LyricData> _lyrics = <LyricData>[].obs;
+  RxList<LyricData> get lyrics => _lyrics;
+
+  // 当前高亮的歌词索引
+  final RxInt _currentLyricIndex = 0.obs;
+  int get currentLyricIndex => _currentLyricIndex.value;
+
+  final ScrollController lyricScrollController = ScrollController();
+
+  // 注入播放列表存储
+  final PlaylistStore playlistStore = Get.find<PlaylistStore>();
+  // 注入全局播放状态管理器
+  final GlobalPlayerStore globalPlayerStore = Get.find<GlobalPlayerStore>();
+
+  // 音频播放器 - 使用后台播放支持
+  final AudioPlayer _audioPlayer = AudioPlayer();
+
+  // 播放状态管理
+  final RxBool _isPlaying = false.obs;
+  bool get isPlaying => _isPlaying.value;
+
+  // 当前播放进度(毫秒)
+  final RxInt _currentPosition = 0.obs;
+  int get currentPosition => _currentPosition.value;
+
+  // 总时长(毫秒)
+  final RxInt _totalDuration = 0.obs;
+  int get totalDuration => _totalDuration.value;
+
+  // 流订阅
+  StreamSubscription<Duration>? positionSubscription;
+  StreamSubscription<Duration?>? durationSubscription;
+  StreamSubscription<PlayerState>? playerStateSubscription;
+
+  // 播放列表监听器
+  StreamSubscription? playlistSubscription;
+  // 播放模式监听器
+  StreamSubscription? playModeSubscription;
+
+  // 是否正在切换上下曲的标志位
+  bool _isSwitchingTrack = false;
+
+  // 解析歌词文本为Lyric列表
+  void parseLyrics(String lyricText) {
+    final List<LyricData> result = [];
+    final lines = LineSplitter.split(lyricText);
+    for (final line in lines) {
+      if (line.isEmpty) continue;
+      // 提取时间戳（支持更多格式：[00:05.00] 或 [00:05.000]）
+      final timeMatch = RegExp(r'\[(\d+):(\d+)\.(\d+)\]').firstMatch(line);
+      if (timeMatch == null) continue;
+
+      // 转换为毫秒
+      final minute = int.parse(timeMatch.group(1)!);
+      final second = int.parse(timeMatch.group(2)!);
+      final millisecondStr = timeMatch.group(3)!;
+
+      // 处理不同长度的毫秒部分
+      int millisecond;
+      if (millisecondStr.length == 2) {
+        // 如果是两位数（如.00），转换为三位数毫秒
+        millisecond = int.parse(millisecondStr) * 10;
+      } else {
+        // 如果是三位数（如.000），直接使用
+        millisecond = int.parse(millisecondStr);
+      }
+
+      final time = minute * 60 * 1000 + second * 1000 + millisecond;
+
+      // 提取歌词内容
+      final text = line.replaceAll(RegExp(r'\[\d+:\d+\.\d+\]'), '').trim();
+      if (text.isNotEmpty) {
+        result.add(LyricData(time: time, text: text));
+        debugPrint('解析歌词: ${time}ms - $text');
+      }
+    }
+    // 按时间排序
+    result.sort((a, b) => a.time.compareTo(b.time));
+    _lyrics.value = result;
+    debugPrint('解析完成，共${result.length}行歌词');
+  }
+
+  /// 加载音乐并开始播放
+  Future<void> loadMusic(Song music) async {
+    try {
+      _currentMusic.value = music;
+
+      // 同步当前歌曲到全局播放状态管理器
+      final track = playlistStore.currentTrack;
+      if (track != null) {
+        globalPlayerStore.setCurrentTrack(track);
+      }
+
+      final audioUrl = music.data[0]['url'] as String?;
+
+      if (audioUrl == null || audioUrl.isEmpty) {
+        debugPrint('音频链接为空');
+        return;
+      }
+
+      debugPrint('音频链接: $audioUrl');
+
+      // 检查URL协议
+      final uri = Uri.parse(audioUrl);
+      if (uri.scheme == 'http') {
+        debugPrint('⚠️ 检测到HTTP音频链接，请确保Android网络安全配置允许明文传输');
+      }
+
+      // 先设置监听器（必须在加载音频前设置）
+      _setupAudioListeners();
+
+      // 设置音频源（添加请求头解决权限问题）
+      await _audioPlayer.setAudioSource(
+        AudioSource.uri(
+          uri,
+          headers: {
+            'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Referer': 'https://music.163.com/',
+            'Accept': '*/*',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            // 添加这些头部来帮助处理HTTP音频流
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
+          },
+        ),
+      );
+      // 设置播放模式
+      debugPrint('playlistStore.currentTrack: ${playlistStore.currentTrack}');
+      debugPrint('音频源设置完成');
+      await _audioPlayer.play();
+      final trackId = track?['id']?.toString();
+      if (trackId != null && trackId.isNotEmpty) {
+        await NasMusicApi.notifyPlay(trackId);
+      }
+    } catch (e) {
+      debugPrint('加载音乐失败: $e');
+      // 提供更详细的错误信息
+      if (e.toString().contains('CleartextNotPermittedException')) {
+        debugPrint('❌ 明文HTTP传输被禁止，请检查Android网络安全配置');
+        debugPrint(
+            '💡 解决方案：确保AndroidManifest.xml中已配置usesCleartextTraffic="true"');
+        debugPrint('💡 并确保network_security_config.xml允许相应的域名');
+      }
+    }
+  }
+
+  /// 设置音频监听器
+  void _setupAudioListeners() {
+    // 先清理已有的监听器，避免重复订阅
+    clearAudioListeners();
+
+    // 监听播放位置变化
+    positionSubscription = _audioPlayer.positionStream.listen((position) {
+      _currentPosition.value = position.inMilliseconds;
+      _updateCurrentLyricIndex();
+    });
+
+    // 监听总时长变化
+    durationSubscription = _audioPlayer.durationStream.listen((duration) {
+      if (duration != null) {
+        _totalDuration.value = duration.inMilliseconds;
+      }
+    });
+
+    // 监听播放状态变化
+    playerStateSubscription = _audioPlayer.playerStateStream.listen((state) {
+      _isPlaying.value = state.playing;
+      // 同步到全局播放状态管理器
+      globalPlayerStore.setPlayingState(state.playing);
+
+      // 播放结束处理
+      if (state.processingState == ProcessingState.completed) {
+        _currentPosition.value = _totalDuration.value;
+        _isPlaying.value = false;
+        globalPlayerStore.setPlayingState(false);
+
+        // 自动播放下一首
+        playNext();
+      }
+    });
+
+    debugPrint('音频监听器已设置');
+  }
+
+  /// 清理音频监听器
+  void clearAudioListeners() {
+    positionSubscription?.cancel();
+    durationSubscription?.cancel();
+    playerStateSubscription?.cancel();
+  }
+
+  /// 设置播放列表监听器
+  void _setupPlaylistListener() {
+    playlistSubscription?.cancel();
+    playModeSubscription?.cancel();
+
+    // 监听播放列表索引变化
+    playlistSubscription = playlistStore.currentIndexStream.listen((index) {
+      debugPrint('播放列表索引变化: $index');
+      final track = playlistStore.currentTrack;
+      if (track != null) {
+        loadMusicFromTrack(track);
+      }
+    });
+
+    // 监听播放模式变化
+    playModeSubscription = playlistStore.playModeStream.listen((mode) {
+      debugPrint('播放模式变化: $mode');
+      // 更新UI以反映播放模式变化
+      update();
+    });
+  }
+
+  /// 更新当前歌词索引
+  void _updateCurrentLyricIndex() {
+    final currentPos = _currentPosition.value;
+    if (_lyrics.isEmpty) return;
+
+    for (int i = 0; i < _lyrics.length; i++) {
+      // 找到当前时间对应的歌词
+      if (currentPos >= _lyrics[i].time &&
+          (i == _lyrics.length - 1 || currentPos < _lyrics[i + 1].time)) {
+        if (_currentLyricIndex.value != i) {
+          _currentLyricIndex.value = i;
+
+          // 立即更新UI
+          update();
+
+          // 延迟滚动，确保UI更新完成
+          Future.delayed(Duration(milliseconds: 100), () {
+            _scrollToCurrentLyric(i);
+          });
+        }
+        break;
+      }
+    }
+  }
+
+  /// 滚动歌词到当前位置
+  void _scrollToCurrentLyric(int index) {
+    if (lyricScrollController.hasClients) {
+      final itemHeight = 50.0;
+
+      // 计算当前歌词在屏幕中的位置
+      final targetPosition = index * itemHeight;
+
+      // 获取当前滚动位置
+      final currentPosition = lyricScrollController.position.pixels;
+
+      // 获取可视区域高度
+      final viewportHeight = lyricScrollController.position.viewportDimension;
+
+      // 计算目标位置，让当前歌词居中显示
+      final centerPosition =
+          targetPosition - viewportHeight / 2 + itemHeight / 2;
+
+      // 确保滚动位置在有效范围内
+      final clampedPosition = centerPosition.clamp(
+          0.0, lyricScrollController.position.maxScrollExtent);
+
+      // 只有当目标位置与当前位置差距较大时才滚动
+      if ((clampedPosition - currentPosition).abs() > 10) {
+        lyricScrollController.animateTo(
+          clampedPosition,
+          duration: Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+        );
+      }
+    }
+  }
+
+  /// 切换播放/暂停
+  Future<void> togglePlayPause() async {
+    try {
+      debugPrint('切换播放状态: 当前状态=${_isPlaying.value}');
+      if (_isPlaying.value) {
+        debugPrint('执行暂停');
+        await _audioPlayer.pause();
+        await NasMusicApi.notifyPause();
+      } else {
+        debugPrint('执行播放');
+        await _audioPlayer.play();
+        final trackId = playlistStore.currentTrack?['id']?.toString();
+        if (trackId != null && trackId.isNotEmpty) {
+          await NasMusicApi.notifyPlay(trackId);
+        }
+      }
+    } catch (e) {
+      debugPrint('播放控制失败: $e');
+    }
+  }
+
+  /// 跳转到指定歌词
+  Future<void> jumpToLyric(int index) async {
+    if (index < 0 || index >= _lyrics.length) return;
+    await seekTo(_lyrics[index].time);
+  }
+
+  /// 跳转到指定进度
+  Future<void> seekTo(int position) async {
+    if (position < 0 || position > _totalDuration.value) return;
+    try {
+      await _audioPlayer.seek(Duration(milliseconds: position));
+    } catch (e) {
+      debugPrint('跳转失败: $e');
+    }
+  }
+
+  /// 格式化时长(毫秒 -> mm:ss)
+  String formatDuration(int milliseconds) {
+    final totalSeconds = milliseconds ~/ 1000;
+    final minutes = (totalSeconds ~/ 60).toString().padLeft(2, '0');
+    final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+    return "$minutes:$seconds";
+  }
+
+  /// 播放下一首
+  void playNext() {
+    if (!playlistStore.hasPlaylist) {
+      debugPrint('没有播放列表');
+      return;
+    }
+
+    // 设置切换标志位
+    _isSwitchingTrack = true;
+
+    // 先暂停当前播放
+    if (_isPlaying.value) {
+      _audioPlayer.pause();
+    }
+
+    playlistStore.nextTrack();
+    final nextTrack = playlistStore.currentTrack;
+    if (nextTrack != null) {
+      loadMusicFromTrack(nextTrack);
+    }
+  }
+
+  /// 播放上一首
+  void playPrevious() {
+    if (!playlistStore.hasPlaylist) {
+      debugPrint('没有播放列表');
+      return;
+    }
+
+    // 设置切换标志位
+    _isSwitchingTrack = true;
+
+    // 先暂停当前播放
+    if (_isPlaying.value) {
+      _audioPlayer.pause();
+    }
+
+    playlistStore.previousTrack();
+    final previousTrack = playlistStore.currentTrack;
+    if (previousTrack != null) {
+      loadMusicFromTrack(previousTrack);
+    }
+  }
+
+  /// 从播放列表曲目加载音乐
+  Future<void> loadMusicFromTrack(Map<String, dynamic> track) async {
+    try {
+      if (track['source'] == 'radio_episode') {
+        await _loadDirectTrack(track, setupPlaylistListener: false);
+        if (_isSwitchingTrack) {
+          await _audioPlayer.play();
+          _isSwitchingTrack = false;
+        }
+        return;
+      }
+
+      // 获取音频URL
+      final trackId = track['id']?.toString() ?? '';
+      if (trackId.isEmpty) {
+        debugPrint('歌曲 ID 为空，无法播放');
+        return;
+      }
+      final songData = await SongApi.getSongById(trackId);
+      if (songData.data.isNotEmpty) {
+        _currentMusic.value = songData;
+
+        // 获取歌词
+        final lyricData = await SongApi.getLyricById(trackId);
+        parseLyrics(lyricData.lrc?['lyric'] ?? '');
+
+        // 加载并播放音乐
+        await loadMusic(songData);
+
+        // 如果正在切换上下曲，自动开始播放
+        if (_isSwitchingTrack) {
+          await _audioPlayer.play();
+          _isSwitchingTrack = false; // 重置标志位
+        } else if (!_isPlaying.value) {
+          // 非切换情况下，如果当前没有播放则开始播放
+          await _audioPlayer.play();
+        }
+
+        update();
+      }
+    } catch (e) {
+      debugPrint('加载播放列表歌曲失败: $e');
+      _isSwitchingTrack = false; // 出错时也要重置标志位
+    }
+  }
+
+  /// 初始化音乐数据
+  Future<void> initMusicData(Map<String, dynamic> track) async {
+    try {
+      if (track['source'] == 'radio_episode') {
+        await _loadDirectTrack(track);
+        return;
+      }
+
+      final trackId = track['id']?.toString() ?? '';
+      if (trackId.isEmpty) {
+        debugPrint('歌曲 ID 为空，无法初始化');
+        return;
+      }
+      final songData = await SongApi.getSongById(trackId);
+      final lyricData = await SongApi.getLyricById(trackId);
+
+      _currentMusic.value = songData;
+      parseLyrics(lyricData.lrc?['lyric'] ?? '');
+
+      await loadMusic(songData);
+
+      // 设置播放列表监听器
+      _setupPlaylistListener();
+
+      update();
+    } catch (e) {
+      debugPrint('初始化音乐数据失败: $e');
+    }
+  }
+
+  Future<void> _loadDirectTrack(
+    Map<String, dynamic> track, {
+    bool setupPlaylistListener = true,
+  }) async {
+    final audioUrl = track['url']?.toString() ?? '';
+    if (audioUrl.isEmpty) {
+      debugPrint('直接播放音频链接为空');
+      return;
+    }
+    final songData = Song.fromJson({
+      'code': 200,
+      'data': [
+        {
+          'id': track['id'],
+          'url': audioUrl,
+          'level': 'radio',
+          'type': track['fileFormat'],
+          'size': track['fileSize'],
+          'time': track['dt'],
+        }
+      ],
+    });
+
+    _currentMusic.value = songData;
+    parseLyrics(track['lyrics']?.toString() ?? '');
+    await loadMusic(songData);
+    if (setupPlaylistListener) {
+      _setupPlaylistListener();
+    }
+    update();
+  }
+
+  @override
+  void onInit() {
+    super.onInit();
+    // 注册到全局播放状态管理器
+    globalPlayerStore.setMusicController(this);
+  }
+
+  @override
+  void onClose() {
+    // 不清理音频播放器，保持播放状态
+    clearAudioListeners();
+    lyricScrollController.dispose();
+    super.onClose();
+  }
+}

@@ -1,5 +1,82 @@
 # Operate Log
 
+## 2026-07-02
+
+- 当前方向切回全栈项目：确认不修改 `~/Documents/徐郭鹏项目/徐-音乐播放器/mu-music`，继续以当前 Tauri/React 全栈项目作为 Personal OS Agent 总控台。
+- 设置页新增“模块应用化路线”面板：明确当前全栈项目负责 Agent、记忆、知识库、MCP/Skill、NAS 和流程日志，小说、音乐、博客、漫画、表情包、视频可逐步拆成独立应用。
+- 扩展模块元数据：每个模块增加总控台/可独立/计划独立状态、运行目标、接入方式和下一步，方便后续按模块推进，不再把所有功能无边界塞进一个页面。
+- 验证通过：`pnpm exec tsc --noEmit --pretty false`、`CI=true pnpm build`、`cargo test` 均成功；仍保留已有 Vite 单 JS chunk 超过 500KB 的体积警告。
+- 排查 `App.tsx` 超过 500KB 导致 Babel deoptimised styling 提示的问题：确认主因是所有工作台页面长期堆在单个主文件里，属于工程结构问题，不是单个 UI 报错。
+- 工程结构修复第一批：将视频工作台拆分到 `src/workspaces/video-workspace.tsx`，`App.tsx` 只保留路由调用，后续继续按模块拆分音乐、博客、小说、漫画/表情包等页面。
+- 构建验证通过：`CI=true pnpm build` 成功；仍有 bundle 超过 500KB 的体积警告，下一步需要继续拆模块并做动态分包。
+- 记录 macOS `IMKCFRunLoopWakeUpReliable` / `TSM AdjustCapsLockLEDForKeyTransitionHandling` 日志判断：这是系统输入法/键盘层日志，当前没有证据表明是应用业务崩溃原因。
+- 工程结构修复第二批：将音乐工作台、Daoliyu 播放器、歌单、歌词、封面和播放工具函数拆分到 `src/workspaces/music-workspace.tsx`；`App.tsx` 降到 567912 bytes。
+- 第二批构建验证通过：`CI=true pnpm build` 成功；当前剩余问题是产物仍打成单个 616KB 左右的 JS chunk，需要下一步做动态 import/code splitting。
+- 工程结构修复第三批：将小说工作台、博客发布指挥台、写作/发布草稿、小说资料预览和小说流程拆分到 `src/workspaces/writing-workspaces.tsx`；`App.tsx` 降到 541769 bytes。
+- 第三批构建验证通过：`CI=true pnpm build` 成功；下一批优先拆底部 `ProcessLog` 和任务详情卡片，目标是把 `App.tsx` 压到 500KB 以下。
+- 工程结构修复第四批：将底部流程日志、任务步骤卡片、Markdown 导出预览、待确认摘要拆分到 `src/components/process-log.tsx`；`App.tsx` 降到 481667 bytes，低于 Babel 500KB 源文件警告阈值。
+- 工程结构修复第五批：将漫画/表情包工作台拆分到 `src/workspaces/image-workspace.tsx`，保留草稿自动保存、提示词预览、素材参考和写入流程能力。
+- 工程结构修复第六批：将记忆模块面板拆分到 `src/workspaces/memory-workspace-panels.tsx`，包括长期理解概览、记忆候选、聊天历史挖掘和长期记忆列表。
+- 工程结构修复第七批：将知识库概览和资料管理面板拆分到 `src/workspaces/knowledge-workspace-panels.tsx`；`App.tsx` 降到 421066 bytes。
+- 第四到第七批构建验证通过：`CI=true pnpm build` 成功；当前仍有单 JS chunk 超过 500KB 的 Vite 警告，后续需要做动态 import/code splitting。
+- 音乐播放全局化第一批：新增 `src/components/global-music-player.tsx`，把隐藏 `<audio>`、播放状态、进度、音量、播放模式、上一首/下一首提升到 App 顶层。
+- 音乐模块改为调用全局播放器：音乐页仍保留完整播放器控制条，切到小说、博客、视频、记忆、知识库、设置等模块时，会显示全局迷你播放器并继续播放。
+- 全局播放器构建验证通过：`CI=true pnpm build` 成功；仍保留 Vite 单 chunk 体积警告，后续用动态 import 处理。
+- 音乐页简化第一批：音乐模块改为左侧歌曲列表、右侧歌曲详情、底部播放 bar，移除主视图里的歌单侧栏、歌单创建和过重的下一步提示。
+- 播放加载态优化：音乐页和全局播放条的中间播放按钮在播放、暂停、上一曲、下一曲请求期间显示旋转加载图标。
+- 工程结构修复第八批：将设置总览、本地数据层、NAS 配置和本机草稿备份拆分到 `src/workspaces/settings-workspace-panels.tsx`。
+- 工程结构修复第九批：将多条 AI 模型配置、当前模型选择、密钥状态保存/删除拆分到 `src/workspaces/settings-workspace-panels.tsx`。
+- 工程结构修复第十批：将 MCP/Skill 能力列表、能力模板、安全策略和执行队列拆分到 `src/workspaces/capabilities-workspace-panels.tsx`。
+- 工程结构修复第十一批：将发布渠道、博客草稿、发布草稿、发布记录和发布检查清单工具拆分到 `src/workspaces/publishing-workspace-panels.tsx`，Agent 继续复用其中的发布解析/检查函数。
+- 工程结构修复第十二批：将右侧 Agent Chat、聊天会话切换、快捷指令、上下文摘要和确认卡片拆分到 `src/components/agent-panel.tsx`；`App.tsx` 保留任务业务逻辑和模块编排。
+- 第八到第十二批验证通过：`pnpm exec tsc --noEmit --pretty false` 和 `CI=true pnpm build` 成功；当前仍有 Vite 单 JS chunk 超过 500KB 的体积警告，下一步建议做动态 import/code splitting。
+- 工程结构修复第十三批：按子代理只读审查建议继续拆分剩余纯逻辑，新增 `src/components/workspace-shell.tsx` 承载 Workspace、Toolbar、ReadinessPanel 和工作区展示壳。
+- 工程结构修复第十四批：新增 `src/lib/labels.ts`，集中状态、风险、渠道、发布状态、记忆类型、日期和短 ID 等展示 label/format helper。
+- 工程结构修复第十五批：新增 `src/app/modules.ts`，集中左侧功能模块和顶部工具模块元数据。
+- 工程结构修复第十六批：新增 `src/agent/message-routing.ts`、`src/agent/music-intents.ts`、`src/agent/memory-intents.ts`、`src/agent/blog-draft-intents.ts`、`src/agent/capability-planning.ts`，拆出聊天路由、音乐意图、记忆意图、博客草稿/发布意图和 MCP/Skill 能力规划纯逻辑。
+- 第十三到第十六批验证通过：`pnpm exec tsc --noEmit --pretty false` 和 `CI=true pnpm build` 成功；`App.tsx` 当前约 3110 行，剩余主要是顶层状态协调、任务执行编排、Agent 回复摘要构建，后续可再拆 `useAgentTaskRunner` 和动态分包。
+- 工程结构修复第十七批：新增 `src/app/use-app-data-loaders.ts`，将 bootstrap、任务日志、执行队列、发布、能力、知识、记忆、NAS、音乐等加载状态和刷新函数从 `App.tsx` 拆成应用数据 hook。
+- 工程结构修复第十八批：新增 `src/agent/agent-response.ts`，集中 Agent 回复文案、聊天上下文摘要、确认门执行计划摘要、UI ID 生成和 AgentTaskResult 类型；`App.tsx` 降到 2435 行。
+- 工程结构修复第十九批：新增 `src/app/use-execution-queue-actions.ts`，将执行队列手动改状态和结果记录 handler 从 `App.tsx` 拆成可复用 hook；`App.tsx` 降到 2392 行。
+- 第十七到第十九批验证通过：`pnpm exec tsc --noEmit --pretty false` 和 `CI=true pnpm build` 成功；当前仍有 Vite 单 JS chunk 超过 500KB 的体积警告，下一步继续拆 `useAgentTaskRunner` 和做动态分包。
+- 音乐模块简化重构：按“左侧歌曲列表、右侧歌曲详情、底部全局播放 bar”重排 `src/workspaces/music-workspace.tsx`，移除音乐页内第二套完整播放器，保留搜索、登录/刷新、选歌、直接播放和歌词文本化展示。
+- 全局播放器细节优化：`src/components/global-music-player.tsx` 的上一首/下一首按钮支持独立 loading，切歌时中间播放按钮同步显示加载中；音乐页复用全局 bar 时避免重复挂载隐藏 audio。
+- 音乐模块重构验证通过：`pnpm exec tsc --noEmit --pretty false` 和 `CI=true pnpm build` 成功；仍有已有 Vite 单 JS chunk 超过 500KB 的体积警告。
+- 修复聊天音乐命令不真实播放：`@音乐 播放/暂停/上一首/下一首` 改为调用同一个 `globalMusicPlayer` 控制器，不再只写流程日志和远端状态。
+- 修复切换模块后音乐停止：`GlobalMusicPlayerBar` 显隐时保持 hidden audio 在同一组件结构中，不再因为 `visible` 切换而卸载音频节点；上一首/下一首会从 Daoliyu 当前播放状态取曲目并接入本机音频流。
+- 音乐播放修复验证通过：`pnpm exec tsc --noEmit --pretty false` 和 `CI=true pnpm build` 成功；仍有已有 Vite 单 JS chunk 超过 500KB 的体积警告。
+- 全局音乐入口调整：非音乐模块不再显示整条播放器，只显示底部悬浮播放按钮，点击直接进入音乐页面；隐藏 audio 仍常驻挂载，保证跨模块播放不断。
+- 修复音乐自动播放误报和不播放：本机音频换源后不再立刻 `play()`，改为记录待播放请求并在 audio `canplay` 事件后统一播放；`AbortError`/`operation was aborted` 视为换源过程中的可恢复状态，不再显示为红色阻断错误。
+- Agent 聊天输入增加 `@` 指令选择器：输入 `@` 或 `@音`、`@博` 等时，在输入框上方弹出小说、博客、音乐、视频、漫画、记忆、知识库等常用命令，点击即可填入完整指令，减少重复手打。
+- 修复音乐列表和上下曲错乱：全局播放器新增本地播放队列，音乐页和聊天搜索会同步当前歌曲列表；上一首/下一首优先按本地队列计算，不再依赖可能滞后的 Daoliyu 当前状态，也不再默认把列表第一首当当前展示项。
+- Agent 聊天流式输出自动滚动到底部：消息新增和回复流式生成时自动跟随到底部，回复结束后用户仍可手动向上查看历史。
+- 视频模块增加 AI 生成工作流：新增“AI 生成视频内容”输入区，用户只需填写第一步需求，系统会按需求、大纲、角色场景道具、参考图、分镜、关键帧、分镜视频、成片导出 8 步顺序调用聊天模型生成产物；未配置真实模型时使用本地结构化兜底。
+- 视频 8 步产物状态上移：AI 生成结果会直接写入每一步产物草稿编辑区，并继续通过现有 `draft.video.step*.output` 自动保存到 SQLite/localStorage；生成完成后同步写入流程日志。
+- 视频生成改为逐步确认：AI 只先生成当前步骤产物并列举内容，状态保存为待确认；用户在聊天框输入“确定/继续/下一步”后，Agent 会确认当前步骤、生成下一步、更新视频产物草稿和流程日志。
+- 视频草稿支持跨聊天更新：`draft.video.step*.output/status` 增加本地草稿更新事件，聊天确认生成的新步骤会立即反映到视频模块编辑区。
+- 按 Product Design brief 重构视频模块首屏：视频页改为“AI 视频流程工作台”，首屏聚焦当前步骤、8 步流程产物、聊天确认状态和 Palmier MCP 状态。
+- 视频模块信息层级收拢：项目草稿、MCP 执行包、8 步产物明细和内容产物区统一收到“高级配置、执行包和产物库”折叠区，避免打开页面后信息过载。
+- 视频确认状态可视化：新增右侧“聊天确认”面板，显示当前等待确认的步骤和最近产物摘要，引导用户在聊天输入“确定”继续生成下一步。
+- 视频模块重构验证通过：`pnpm exec tsc --noEmit --pretty false` 和 `CI=true pnpm build` 成功；仍有已有 Vite 单 JS chunk 超过 500KB 的体积警告。
+- Kinetic Lab 主题重构第一批：全局外框改为深色点阵背景、深色左侧导航、浅蓝灰主窗口、紫蓝主按钮和铜橙提示色方向；顶部 NAS 只显示在线/待检查，不再展示容量。
+- 左侧模块拆分：工作模块改为小说、音乐、博客、漫画、表情包、视频；记忆、知识库、设置继续作为右上角工具入口。
+- 漫画/表情包入口拆分：UI 层新增 `comic` 与 `sticker` 模块，底层暂时复用图片生成工作台和草稿字段，避免破坏已有图片模型配置和本机草稿。
+- Kinetic Lab 主题修正：根据参考图重新调整外框，取消大面积深色侧栏，改为深色点阵背景上的浅蓝实验面板；左侧导航、顶部状态、工作区、聊天区和流程日志统一为浅蓝卡片系统，深色只保留为选中态/反色强调。
+- Kinetic Lab 主题二次校正：根据用户提供的成品页面截图，改为“深色系统壳 + 浅色工作台”结构；左侧和顶部恢复深色，左侧选中态使用紫蓝渐变，主工作区、右侧聊天和底部流程日志保持浅色大面板。
+- 左侧导航图标修正：参考截图改用更接近的线性 lucide 图标（小说书本、音乐音符、博客笔记、漫画图书、表情包贴纸、视频胶片），并移除左侧模块右侧的黄色/灰色状态点。
+- Kinetic Lab 外框结构修正：将左侧导航、顶部栏和内容区包进同一个 `kinetic-app-frame` 大圆角窗口，移除左侧和主区各自独立的外框/圆角，使页面呈现参考图中的整体块状结构。
+- 小说工作台按参考图重构：内容区改为当前作品、章节列表、章节草稿、角色、世界观、记忆上下文、知识上下文的三栏结构，章节正文可本地保存并可写入流程日志。
+- 修复小说工作台三栏溢出：三栏改为可压缩比例布局，章节列表和右侧上下文改为内部滚动，避免聊天面板打开时右侧卡片和底部信息跑出主内容区。
+- 小说模块接入真实数据第一批：参考 PlotForge 写小说项目的数据结构，在当前 SQLite/Tauri 后端新增小说作品、章节、草稿、角色、世界观表和读写命令；前端小说页改为读取真实数据，支持新建作品、新建章节、保存正文草稿。
+- NAS 音乐电台第一批：Flutter 桌面音乐页移除“歌手”入口，新增“音乐电台”Tab；可根据当前歌曲/喜欢列表创建电台任务、查看历史节目，并把节目包装成普通播放 track 走现有播放器。
+- NAS 服务端音乐电台接口：新增 `/v1/music/radio/status`、`/v1/music/radio/jobs`、`/v1/music/radio/jobs/{id}`、`/v1/music/radio/episodes`、`/v1/music/radio/episodes/{id}/stream`；SQLite 增加 `music_radio_jobs` 和 `music_radio_episodes` 表。
+- MiniMax TTS 配置接入：新增 `MINIMAX_API_KEY`、`MINIMAX_GROUP_ID`、`MINIMAX_TTS_VOICE_ID`、`MINIMAX_TTS_MODEL`、`RADIO_OUTPUT_DIR` 配置；未配置 MiniMax 时生成可播放 mock WAV，配置后调用 MiniMax TTS 生成 MP3。
+- 音乐电台验证：Flutter `analyze`、macOS debug build、Android debug build 通过；本地 NAS 服务端用 Python 3.11 临时环境验证 radio status、create job、episodes 和 range stream，音频接口返回 `206 Partial Content`。
+- NAS 每日音乐电台定时：新增服务端后台定时器，默认每天 `Asia/Shanghai 07:30` 根据陕西西安天气和 Daoliyu 最近播放记录生成一期电台；新增 `/v1/music/radio/daily/status` 和 `/v1/music/radio/daily/run`，Flutter 桌面电台页显示每日状态并可立即生成今日电台。
+- 每日音乐电台验证：本地服务端验证西安天气读取成功，脚本包含天气信息；启动时间已过 07:30 时会自动补生成当天一期，手动 `/daily/run` 也可生成；Flutter `analyze`、macOS debug build、Android debug build 通过。
+- MiniMax Token Plan 接入音乐电台：服务端新增 `MINIMAX_SUBSCRIPTION_KEY` 优先读取并兼容旧 `MINIMAX_API_KEY`，默认电台 TTS 改为 `speech-2.8-hd` + `male-qn-jingying`；真实订阅 Key 已写入 ignored 的本地 secret env 文件，文档和示例只保留字段名。
+- Flutter 音乐电台客户端收尾：桌面端音乐电台页独立于歌曲列表加载，新增 MiniMax 状态徽标和刷新按钮；确认线上 NAS `/radio/status`、`/radio/daily/status`、`/radio/episodes` 可用，macOS 和 Android debug 包重新构建通过。
+
 ## 2026-07-01
 
 - 将 NAS Agent Server 的 Docker 数据挂载从匿名 volume 改为绿联 NAS 宿主机路径：`/volume1/docker/personal-os-agent/data:/data`。
@@ -13,3 +90,50 @@
 - 聊天 Agent 增加第一批 `@音乐` 命令：搜索、播放、暂停、上一首、下一首、创建歌单，并把动作写入流程日志。
 - 修复音乐模块在 Tauri WebView 中请求 NAS 可能出现 `Load failed`：桌面端音乐/NAS JSON 请求改为走 Rust `nas_json_request` 桥接，浏览器预览继续使用 fetch fallback。
 - 修复底部流程日志高度和滚动布局；歌曲详情不再展示整段 JSON，歌词和音频信息分区显示。
+- 按 Product Design 选定的 Command Center 方向重构主界面外壳：左侧只保留真实功能模块，顶部放记忆、知识库、设置和聊天控制，底部流程日志降高并提升密度。
+- 将视频画布改为 8 步内容生成工作流：需求、大纲、角色场景道具、参考图、分镜、分镜关键帧、分镜视频、成片导出；Palmier/MCP 作为后续执行器。
+- 视频工作流按钮接入现有模块动作日志，点击“生成关键帧清单”等动作会写入底部流程日志。
+- 新增 `design-qa.md`，记录 Product Design 对照截图、视觉 QA 结果和后续 polish 项。
+- 处理本地开发端口占用：确认旧 Vite 进程占用 `127.0.0.1:1420`，结束进程后重新启动 dev server；调试记录写入 `memory/2026-07-01-dev-server-port-1420.md`。
+- 小说模块升级为 Command Center 真实状态页：从知识库与长期记忆汇总作品资料、角色、世界观、章节素材，并展示小说生成流程。
+- 博客模块升级为发布指挥台：展示草稿、待发布、可发布、待补充、发布渠道、配置完整度，以及最近草稿和渠道准备状态。
+- 对小说/博客/音乐工作台进行浏览器截图检查，修复统计卡片过窄导致中文竖排的问题。
+- 修复音乐模块卡顿/滚动问题：音乐 overview 改为分项容错加载，NAS 请求超时降为 12 秒，歌曲列表和歌单列表不再使用嵌套滚动容器。
+- 新增真实本机播放链路：NAS 服务端增加 `/v1/music/audio/{track_id}/status` 和 `/v1/music/audio/{track_id}`，前端音乐模块增加 `<audio controls>` 本机播放器。
+- 增加 `DAOLIYU_MEDIA_ROOT=/data/media` 配置说明；真实播放需要把 NAS 音乐库以只读方式挂载到 Agent Server 容器内的 `/data/media`。
+- 音乐播放/滚动调试记录写入 `memory/2026-07-01-music-scroll-and-real-playback.md`。
+- 按用户参考图重构音乐播放页：左侧导航改为黑底选中态并收窄，音乐模块改为歌曲表格、歌曲详情、播放列表和底部本机播放器布局。
+- 右侧 Agent 面板增加快捷指令卡片，音乐上下文下优先展示 `@音乐 播放`、`@博客 草稿`、`@视频 剪辑`、`@小说 大纲`、`@漫画 生成`。
+- 隐藏底部原生 HTML 音频控件，改为应用内自定义播放条：播放/暂停、进度、音量滑块和顺序/单曲循环/随机模式。
+- 音乐真实播放改为 Daoliyu 标准流地址：NAS 服务端内部拼接 `/api/tracks/{trackId}/stream?token=...` 并代理给前端，前端不接触 token，也不再依赖本地媒体目录挂载。
+- 前端音乐播放接入线上已验证的 Daoliyu 通用代理接口：音频流使用 `/v1/music/api/tracks/{trackId}/stream`，播放/暂停使用 `/v1/music/api/player/play` 和 `/v1/music/api/player/pause`，暂停后再次播放优先从本地音频当前位置续播。
+- 音乐封面图统一走 NAS 代理：前端拼接 `https://os.xuguopeng.com/v1/music/static/...`，服务端代理把 `/v1/music/static/...` 转发到 Daoliyu 的 `/static/...`。
+- 完善剩余工作页面第一批：漫画/表情包模块升级为可操作工作台，视频模块增加内容产物区，记忆中心增加 Agent 长期理解概览，知识库增加 Agent 资料中心，MCP/Skill 面板增加调用安全和能力统计。
+- 完善剩余工作页面第二批：设置页增加系统配置总览，漫画/表情包页增加可编辑生成草稿和提示词预览，视频页增加可编辑项目草稿和执行摘要，草稿动作可写入流程日志。
+- 完善剩余工作页面第三批：小说页增加可编辑写作草稿和续写输入预览，博客发布指挥台增加发布规划草稿，二者都支持把当前规划写入流程日志。
+- 完善剩余工作页面第四批：小说、博客、漫画/表情包、视频的可编辑草稿输入改为本机自动保存，刷新页面后不丢失；后续再升级为 SQLite 草稿表。
+- 完善剩余工作页面第五批：小说、博客、漫画/表情包、视频草稿面板增加复制预览和恢复默认，预览区统一为可滚动、可复制的工具块。
+- 完善剩余工作页面第六批：右侧 Agent 快捷指令按当前模块显示小说、博客、漫画/表情包、视频、音乐、记忆、知识库对应命令；MCP/Skill 设置面板增加常用能力模板。
+- 完善剩余工作页面第七批：设置、小说、博客、漫画/表情包、视频页面增加下一步建议/配置缺口面板，展示当前就绪项和需要补齐的资料、模型、渠道或 MCP 状态。
+- 完善剩余工作页面第八批：音乐、记忆、知识库页面增加下一步建议面板；设置页增加本机草稿备份面板，可复制 localStorage 草稿 JSON，不包含密钥。
+- 完善剩余工作页面第九批：设置页本机草稿备份增加导入恢复能力，粘贴 JSON 后可预览并恢复白名单草稿字段，继续排除密钥和账号 token。
+- 完善剩余工作页面第十批：新增 SQLite `local_drafts` 草稿表和 Tauri/前端 API，设置页备份面板支持把本机草稿同步到 SQLite，恢复草稿时同时写入 localStorage 和 SQLite。
+- 完善剩余工作页面第十一批：通用草稿输入 hook 接入 SQLite，小说、博客、漫画/表情包、视频草稿打开时优先读取 SQLite，编辑时自动同步到 `local_drafts`。
+- 完善剩余工作页面第十二批：设置页增加 SQLite 草稿管理列表，可查看草稿模块、来源、更新时间，支持复制单项内容和确认删除草稿。
+- 完善视频页第十三批：视频项目草稿增加参考素材、镜头数量和导出路径，生成可复制的 Palmier/MCP 执行包 JSON，并新增 8 步产物明细面板。
+- 完善视频页第十四批：8 步流程面板支持点击切换当前步骤，右侧显示该步输入、输出、验收和执行说明，并可将当前步骤生成/校对动作写入流程日志。
+- 完善视频页第十五批：每个视频流程步骤增加产物草稿编辑区，支持复制、恢复模板、写入流程日志，并自动保存到 SQLite 草稿表。
+- 完善视频页第十六批：8 步流程增加可持久化完成/当前/待处理状态，支持手动标记并写入流程日志，进度条和执行包预览改为读取草稿状态；第 7、8 步仍只更新 UI 状态，不真实调用 MCP 或导出。
+- 音乐电台改为真实节目流程：服务端生成“开场语音 -> 推荐歌曲队列 -> 收尾语音”的 segments，开场脚本增加西安天气、歌曲信息和推荐理由；Flutter 客户端将电台 episode 转为播放队列，点击今日电台会先播放 MiniMax 开场，再顺序播放真实 NAS 歌曲，最后播放收尾语音。
+- Flutter 播放器修复：重新设置播放列表监听前会先取消旧订阅，避免多次进入电台/歌曲后上下曲触发重复加载。
+- 修复“生成电台”仍是旧流程：NAS 服务端 `/v1/music/radio/jobs` 改为和“今日电台”一致的开场语音、歌曲队列、收尾语音 segments；Flutter macOS 音乐页按 Product Design 方向重构为桌面音乐库，新增音乐列表、歌手列表、喜欢、播放记录、今日电台分区，歌手卡片可进入该歌手歌曲列表。
+- Flutter macOS 音乐页组件风格回收：加载态和按钮加载动效改回原项目使用的 `LoadingAnimationWidget.staggeredDotsWave`，继续沿用 `NetImage` 和 `BottomPlayerBar` 等原有组件，避免桌面页出现临时拼装感。
+- Flutter 项目新增黑色/白色主题切换：新增 `ThemeStore` 持久化主题选择，`AppColors` 改为根据当前主题动态返回颜色；macOS 顶部栏和移动端底部区域新增 `ThemeToggleButton`，切换后全项目使用 `AppColors` 的页面跟随变更。
+- Flutter 主题主色锁定为原项目红色：`AppColors.brandRed/primaryBtn` 固定为 `rgb(254,121,113)`，黑色/白色主题只切换背景、表面、边框和文字色；Material `primaryColor/colorScheme.primary` 同步使用该红色，避免白色主题下系统控件变成默认蓝色。
+- Flutter 电台旧结构兼容：线上 NAS 旧节目返回 `generator=minimax` 但 `segments=[]` 时，客户端会根据 `sourceTrackIds` 自动拼成“电台串词 + 真实歌曲列表”的播放队列，并在列表中显示歌曲数量，避免旧节目只作为一段测试音频播放。
+- Flutter macOS 音乐页图标圆角化：左侧音乐库导航、电台流程提示、电台节目列表统一改为圆角图标盒；电台页在检测到 NAS 仍返回旧结构时显示兼容提示，说明当前只能按“串词 + 歌曲队列”播放，完整收尾语音需要 NAS 服务端重新部署。
+- Flutter macOS 音乐页视觉收简：按反馈移除图标外层圆角盒和边框，图标恢复为纯图标显示；顶部左侧只保留 logo，不再显示“沐音 / NAS 音乐 / 桌面音乐库”等额外标签。
+- Flutter macOS 顶部栏继续收简：移除图片 logo，左上角只保留“沐音”文字，避免黑白主题切换时图片 logo 适配不稳定。
+- Flutter macOS 音乐页按新参考图重构：桌面端改为暗色星点背景、左侧纯图标导航、中央音乐库表格、右侧今日电台/最近播放/喜欢卡片，以及独立的大底部播放栏；播放、上一首、下一首、喜欢、进度拖动和播放队列继续接入真实播放器。
+- 开源边界收紧：`.gitignore` 增加 private/self-use 能力规则，真实密钥、自用插件目录、QQ/网易/酷狗/酷我等第三方音乐元数据 provider 实现默认不进入 git；开源仓库只保留接口、示例配置和说明。
+- 仓库方向调整为 NAS 音乐服务：移除旧 React/Tauri 应用壳、node_modules/dist/build 缓存和非 NAS 产品规划文档；保留 `services/agent-server`、Docker 配置、数据/密钥示例、NAS 文档和操作日志；将 Flutter 音乐客户端从原路径移动到 `clients/mu-music`，并清理 build、Pods、Gradle 缓存等生成物。

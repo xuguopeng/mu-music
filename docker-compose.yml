@@ -11,7 +11,21 @@ services:
       AGENT_SERVER_BIND_HOST: 0.0.0.0
       AGENT_SERVER_PORT: "8088"
       DAOLIYU_BASE_URLS: http://host.docker.internal:5173,https://daoliyu.xuguopeng.com
+      DAOLIYU_MEDIA_ROOT: /data/media
+      RADIO_OUTPUT_DIR: /data/radio
+      MINIMAX_TTS_MODEL: speech-2.8-hd
+      MINIMAX_TTS_VOICE_ID: male-qn-jingying
+      RADIO_DAILY_ENABLED: "true"
+      RADIO_DAILY_TIME: "07:30"
+      RADIO_DAILY_TIMEZONE: Asia/Shanghai
+      RADIO_WEATHER_CITY: 陕西西安
+      RADIO_WEATHER_LAT: "34.3416"
+      RADIO_WEATHER_LON: "108.9398"
+      RADIO_RECENT_LIMIT: "30"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - /volume1/docker/personal-os-agent/data:/data
+      # For real PC audio playback, mount the NAS music library here.
+      # Replace /volume1/music with the actual folder that matches Daoliyu filePath entries.
+      # - /volume1/music:/data/media:ro

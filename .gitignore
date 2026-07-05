@@ -18,6 +18,27 @@ __pycache__/
 .venv/
 venv/
 
+# Flutter/Dart client generated files
+clients/**/.dart_tool/
+clients/**/.flutter-plugins
+clients/**/.flutter-plugins-dependencies
+clients/**/.pub-cache/
+clients/**/.pub/
+clients/**/build/
+clients/**/ios/Flutter/.last_build_id
+clients/**/ios/Flutter/ephemeral/
+clients/**/ios/Pods/
+clients/**/ios/.symlinks/
+clients/**/macos/Flutter/ephemeral/
+clients/**/macos/Pods/
+clients/**/android/.gradle/
+clients/**/android/.kotlin/
+clients/**/android/app/debug/
+clients/**/android/app/profile/
+clients/**/android/app/release/
+clients/**/app.*.symbols
+clients/**/app.*.map.json
+
 # Local databases and generated runtime data
 *.sqlite
 *.sqlite3
@@ -26,8 +47,46 @@ data/*
 !data/
 !data/README.md
 !data/secrets/
+!data/secrets/agent-server.env.example
 !data/secrets/daoliyu.env.example
 data/secrets/*.env
+
+# Private/self-use capabilities
+# Open-source builds should keep provider interfaces and examples only.
+private/
+private_plugins/
+private-plugins/
+personal-music-private-plugins/
+plugins/private/
+plugins/private_plugins/
+plugins/**/private/
+plugins/**/private_plugins/
+services/**/private_plugins/
+services/**/private-plugins/
+services/**/plugins/private/
+services/**/plugins/private_plugins/
+**/*private_provider*
+**/*_private_provider*
+**/*_personal_provider*
+
+# Personal third-party music metadata scrapers.
+# Keep these out of the public repo; publish only interfaces/examples.
+**/qqmusic_provider.*
+**/netease_provider.*
+**/kugou_provider.*
+**/kuwo_provider.*
+**/spotify_provider.*
+**/musicbrainz_provider.*
+**/listenbrainz_provider.*
+**/acoustid_provider.*
+**/providers/qqmusic.*
+**/providers/netease.*
+**/providers/kugou.*
+**/providers/kuwo.*
+**/providers/spotify.*
+**/providers/musicbrainz.*
+**/providers/listenbrainz.*
+**/providers/acoustid.*
 
 # Superpowers local runtime state
 .superpowers/**/state/

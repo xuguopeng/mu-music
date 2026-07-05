@@ -1,84 +1,88 @@
-# Personal OS Agent
+# Personal Music NAS
 
-Local-first Personal OS desktop app built with Tauri 2, React, TypeScript, and shadcn/ui-style components.
+This repository is now focused on the NAS music service and the Flutter music client.
 
-## Current Checkpoint
+## Structure
 
-The app shell is in place, but most module actions are not real workflows yet:
+- `services/agent-server/` - NAS-side Python service.
+  - Proxies Daoliyu music APIs.
+  - Stores server data under `/data`.
+  - Handles Daoliyu login, music status, playback proxy, radio episodes, and MiniMax TTS radio generation.
+- `clients/mu-music/` - Flutter client for Android, macOS, iOS, and web targets.
+- `data/` - Local development data notes and secret examples.
+- `docs/nas/` - NAS and music proxy implementation notes.
+- `operateLog.md` - Local operation history.
 
-- Left navigation for primary work modules.
-- Resizable workspace and Agent chat panes.
-- Bottom process log accordion.
-- Placeholder workspaces for novel, music, blog, comics/stickers, and video canvas.
-- Utility entries for memory, knowledge, and settings live outside the left work-module menu.
-- Multiple AI model profiles for chat and embedding, with active profile selection.
-- Palmier Pro MCP connection placeholder for video editing.
-- Local SQLite schema initialized from the Tauri side.
-- Settings page can read and save chat/embedding model profiles.
-- Browser preview uses localStorage fallback; desktop mode uses SQLite.
-- Bottom process log is backed by task sessions and task steps.
-- Agent chat can create a local simulated task and write log steps.
-- API keys and publishing secrets use system keychain in desktop mode.
-- Publishing channel configuration supports website, WeChat public account, and custom channels.
-- Video canvas can check Palmier Pro MCP connection status.
-- Settings includes an MCP / Skills capability list where new entries can be added, enabled/disabled, and deleted.
+## Open Source Boundary
 
-No real AI calls, memory CRUD, knowledge CRUD, vector indexing, automatic publishing, or Palmier editing actions are wired yet.
+The public repository should only include local-file music management and clean service/client code.
 
-The next implementation target is not the full long-term vision. It is the focused real-use MVP in:
+Do not commit:
 
-- `docs/superpowers/specs/2026-06-29-real-usable-mvp-v1.md`
+- real `.env` files
+- Daoliyu account credentials
+- MiniMax subscription/API keys
+- private metadata plugins
+- QQ Music / NetEase / Kugou / Kuwo scraper implementations
+- generated build output
 
-That MVP prioritizes one real end-to-end loop: chat or manually create memory candidates, approve them into long-term memory, list/edit/delete saved memories, and show real process logs.
+Third-party metadata scraping should live in private plugin folders outside the public code path.
 
-## Development
+## NAS Service
 
-Install dependencies:
+Run with Docker Compose:
 
 ```bash
-pnpm install
+docker compose up -d --build
 ```
 
-Run the web shell:
+Local development:
 
 ```bash
-pnpm dev -- --host 127.0.0.1
+cd services/agent-server
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python -m app.main
 ```
 
-Run the desktop app:
+Useful endpoints:
+
+- `GET /health`
+- `GET /v1/music/status`
+- `POST /v1/music/auth/login`
+- `GET /v1/music/radio/status`
+- `POST /v1/music/radio/daily/run`
+
+## Flutter Client
 
 ```bash
-pnpm tauri dev
+cd clients/mu-music
+flutter pub get
+flutter run -d macos
 ```
 
-Build the frontend:
+Build examples:
 
 ```bash
-pnpm build
+flutter build macos --debug
+flutter build apk --release --split-per-abi
 ```
 
-Check the Tauri Rust side:
+## Secrets
 
-```bash
-cd src-tauri
-cargo check
+For NAS deployment, store secrets in the mounted data volume:
+
+```text
+/volume1/docker/personal-os-agent/data/secrets/agent-server.env
+/volume1/docker/personal-os-agent/data/secrets/daoliyu.env
 ```
 
-Run Rust tests:
+For local development, use:
 
-```bash
-cd src-tauri
-cargo test
+```text
+data/secrets/agent-server.env
+data/secrets/daoliyu.env
 ```
 
-## Planning Docs
-
-- `docs/superpowers/specs/2026-06-29-personal-os-agent-design.md`
-- `docs/superpowers/specs/2026-06-29-personal-os-agent-implementation-plan.md`
-- `docs/superpowers/specs/2026-06-29-real-usable-mvp-v1.md`
-- `docs/superpowers/specs/2026-06-29-full-implementation-roadmap.md`
-- `docs/superpowers/specs/2026-06-29-step-01-mvp-baseline-plan.md`
-- `docs/superpowers/specs/2026-06-29-step-02-chat-to-memory-candidate-plan.md`
-- `docs/superpowers/specs/2026-06-29-step-03-memory-candidate-review-plan.md`
-- `docs/superpowers/specs/2026-06-29-step-04-memory-list-plan.md`
-- `docs/superpowers/specs/2026-06-29-step-05-memory-management-plan.md`
+Only `*.env.example` files are intended to be committed.
