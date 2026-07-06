@@ -397,7 +397,7 @@ def list_radio_chat() -> dict[str, Any]:
 
 
 @router.post("/radio/chat")
-def create_radio_chat_message(payload: dict[str, Any]) -> JSONResponse:
+async def create_radio_chat_message(payload: dict[str, Any]) -> JSONResponse:
     content = str(payload.get("content") or "").strip()
     if not content:
         return JSONResponse(
@@ -406,7 +406,13 @@ def create_radio_chat_message(payload: dict[str, Any]) -> JSONResponse:
         )
     now_text = datetime.now(ZoneInfo(get_settings().radio_daily_timezone)).isoformat()
     user_message_id = uuid.uuid4().hex
-    classification = classify_radio_chat(content)
+    local_classification = classify_radio_chat(content)
+    chat_context = load_radio_chat_context()
+    classification = await classify_radio_chat_with_minimax(
+        content,
+        local_classification,
+        chat_context,
+    )
     memory_id = ""
     memory: dict[str, Any] | None = None
 
@@ -450,7 +456,11 @@ def create_radio_chat_message(payload: dict[str, Any]) -> JSONResponse:
             ),
         )
         assistant_message_id = uuid.uuid4().hex
-        assistant_content = build_radio_chat_reply(content, classification, memory)
+        assistant_content = classification.get("reply") or build_radio_chat_reply(
+            content,
+            classification,
+            memory,
+        )
         conn.execute(
             """
             INSERT INTO music_radio_chat_messages (
@@ -478,6 +488,7 @@ def create_radio_chat_message(payload: dict[str, Any]) -> JSONResponse:
         content={
             "status": "ok",
             "intentType": classification["intentType"],
+            "generator": classification.get("generator", "local-rules"),
             "message": radio_chat_message_row_to_dict(user_row),
             "assistant": radio_chat_message_row_to_dict(assistant_row),
             "memoryCandidate": memory,
@@ -2421,6 +2432,149 @@ def classify_radio_chat(content: str) -> dict[str, Any]:
         "memoryTitle": memory_title,
         "memoryContent": memory_content,
         "confidence": confidence,
+        "reply": "",
+        "generator": "local-rules",
+    }
+
+
+def load_radio_chat_context() -> dict[str, Any]:
+    with db() as conn:
+        message_rows = conn.execute(
+            """
+            SELECT * FROM music_radio_chat_messages
+            ORDER BY created_at DESC
+            LIMIT 16
+            """
+        ).fetchall()
+        memory_rows = conn.execute(
+            """
+            SELECT * FROM music_preference_memories
+            WHERE status = 'remembered'
+            ORDER BY updated_at DESC
+            LIMIT 20
+            """
+        ).fetchall()
+    return {
+        "messages": [
+            radio_chat_message_row_to_dict(row) for row in reversed(message_rows)
+        ],
+        "memories": [music_memory_row_to_dict(row) for row in memory_rows],
+    }
+
+
+async def classify_radio_chat_with_minimax(
+    content: str,
+    local_classification: dict[str, Any],
+    chat_context: dict[str, Any],
+) -> dict[str, Any]:
+    if not resolved_minimax_key() or not get_settings().minimax_group_id:
+        return local_classification
+    prompt = build_minimax_radio_chat_prompt(content, local_classification, chat_context)
+    try:
+        result = await generate_minimax_chat_json(prompt)
+    except Exception as error:
+        fallback = dict(local_classification)
+        fallback["effectSummary"] = f"{fallback['effectSummary']} MiniMax M3 暂不可用，已使用本地规则兜底。"
+        fallback["generator"] = "local-rules"
+        fallback["aiError"] = str(error)
+        return fallback
+    merged = normalize_minimax_radio_chat_result(result, local_classification)
+    merged["generator"] = "minimax-m3"
+    return merged
+
+
+def build_minimax_radio_chat_prompt(
+    content: str,
+    local_classification: dict[str, Any],
+    chat_context: dict[str, Any],
+) -> str:
+    memories = chat_context.get("memories") or []
+    messages = chat_context.get("messages") or []
+    memory_lines = [
+        f"- {item.get('category', 'music_preference')}: {item.get('content', '')}"
+        for item in memories[:20]
+        if isinstance(item, dict)
+    ]
+    message_lines = [
+        f"{item.get('role', 'user')}: {item.get('content', '')}"
+        for item in messages[-12:]
+        if isinstance(item, dict)
+    ]
+    return (
+        "你是“沐音 FM”的私人 AI DJ，负责用自然、克制、像朋友一样的语气回复用户。\n"
+        "你还要判断这句话应该如何进入系统：当前电台指令、长期音乐偏好候选、普通聊天。\n"
+        "不要装作已经真的切歌或播放，除非用户只是表达偏好；可说“我会把本期方向调成...”。\n"
+        "长期偏好必须是以后也有价值的信息，例如喜欢/不喜欢的歌手、曲风、场景规则、口播习惯。"
+        "临时请求例如“今天、这期、现在、下一首”只作为 session_instruction。\n"
+        "回复要短，20-70 个中文字符，不能像客服，不要说“已为您”。\n"
+        "只输出 JSON，不要 markdown，不要额外解释。\n"
+        "JSON 字段："
+        '{"reply":"...","intentType":"session_instruction|long_term_preference|chat",'
+        '"effectSummary":"...","memoryCandidate":true,'
+        '"memoryCategory":"music_preference|music_avoidance|music_scene_rule|dj_style",'
+        '"memoryTitle":"...","memoryContent":"...","confidence":0.0}\n'
+        f"本地初判：{json.dumps(local_classification, ensure_ascii=False)}\n"
+        "已确认长期偏好：\n"
+        + ("\n".join(memory_lines) if memory_lines else "- 暂无\n")
+        + "\n最近对话：\n"
+        + ("\n".join(message_lines) if message_lines else "- 暂无\n")
+        + f"\n用户刚说：{content}\n"
+    )
+
+
+def normalize_minimax_radio_chat_result(
+    result: dict[str, Any],
+    fallback: dict[str, Any],
+) -> dict[str, Any]:
+    allowed_intents = {"session_instruction", "long_term_preference", "chat"}
+    allowed_categories = {
+        "music_preference",
+        "music_avoidance",
+        "music_scene_rule",
+        "dj_style",
+    }
+    intent_type = str(result.get("intentType") or fallback["intentType"]).strip()
+    if intent_type not in allowed_intents:
+        intent_type = fallback["intentType"]
+    memory_candidate = bool(result.get("memoryCandidate"))
+    if intent_type != "long_term_preference":
+        memory_candidate = False
+    memory_category = str(
+        result.get("memoryCategory") or fallback.get("memoryCategory") or "music_preference"
+    ).strip()
+    if memory_category not in allowed_categories:
+        memory_category = fallback.get("memoryCategory") or "music_preference"
+    memory_content = str(result.get("memoryContent") or "").strip()
+    if memory_candidate and not memory_content:
+        memory_content = fallback.get("memoryContent") or ""
+    if not memory_content:
+        memory_candidate = False
+    memory_title = str(result.get("memoryTitle") or "").strip()
+    if not memory_title and memory_content:
+        memory_title = build_memory_title(memory_content)
+    reply = str(result.get("reply") or "").strip()
+    confidence = result.get("confidence", fallback.get("confidence", 0.62))
+    try:
+        confidence_value = float(confidence)
+    except (TypeError, ValueError):
+        confidence_value = float(fallback.get("confidence", 0.62))
+    confidence_value = max(0.0, min(confidence_value, 1.0))
+    effect_summary = str(result.get("effectSummary") or "").strip()
+    if not effect_summary:
+        effect_summary = {
+            "long_term_preference": "MiniMax M3 识别为长期音乐偏好候选，等待你确认是否记住。",
+            "session_instruction": "MiniMax M3 识别为当前电台指令，先影响本期电台上下文。",
+            "chat": "MiniMax M3 识别为普通聊天，暂时只保留在电台对话里。",
+        }[intent_type]
+    return {
+        "intentType": intent_type,
+        "effectSummary": effect_summary,
+        "memoryCandidate": memory_candidate,
+        "memoryCategory": memory_category,
+        "memoryTitle": memory_title,
+        "memoryContent": memory_content,
+        "confidence": confidence_value,
+        "reply": reply,
     }
 
 

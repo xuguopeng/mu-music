@@ -175,3 +175,4 @@
 - Docker Compose 服务命名更新：服务名从 `agent-server` 改为 `music-server`，容器名从 `personal-os-agent-server` 改为 `mu-music-server`；数据卷和 SQLite 路径暂时保留原值，避免 NAS 重新部署后丢失已有数据和密钥。
 - 今日电台重复生成修正：`/v1/music/radio/daily/build` 默认复用当天已经合成好的 ffmpeg 电台节目，不再每次点击都生成重复音频；客户端按 `episode.id` 去重更新列表。MiniMax Chat 电台 prompt 改为更口语化的私人主持人口吻，避免“测试音频、生成中、推荐理由”等生硬文案。
 - Claudio 氛围电台第一版：Flutter “今日电台”改为私人 DJ 房间布局，包含 LIVE 状态、动态波形、DJ 开场文本、本期歌单、最近电台、对话面板和音乐画像候选面板；新增 `/radio/chat` 对话接口和 `/radio/memories/{id}/remember|ignore` 记忆确认接口，聊天内容先分类为当前指令、长期偏好候选或普通聊天，长期画像默认待确认，不会自动写死。
+- 电台聊天接入 MiniMax M3：`POST /v1/music/radio/chat` 从本地模板回复升级为 MiniMax Chat 调用，M3 会结合已确认音乐偏好和最近对话生成 DJ 回复，并判断当前指令/长期偏好候选/普通聊天；MiniMax 不可用时继续使用本地规则兜底。
