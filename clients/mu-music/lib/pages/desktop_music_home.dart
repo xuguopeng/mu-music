@@ -604,19 +604,11 @@ class _DesktopMusicHomeState extends State<DesktopMusicHome> {
           child: Center(
             child: ConstrainedBox(
               constraints: BoxConstraints(maxWidth: 492),
-              child: Column(
-                children: [
-                  _buildVerticalTopBar(),
-                  SizedBox(height: 10),
-                  Expanded(
-                    child: AnimatedSwitcher(
-                      duration: Duration(milliseconds: 260),
-                      switchInCurve: Curves.easeOutCubic,
-                      switchOutCurve: Curves.easeInCubic,
-                      child: _buildVerticalPanel(),
-                    ),
-                  ),
-                ],
+              child: AnimatedSwitcher(
+                duration: Duration(milliseconds: 260),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                child: _buildVerticalPanel(),
               ),
             ),
           ),
@@ -780,6 +772,228 @@ class _DesktopMusicHomeState extends State<DesktopMusicHome> {
     }
   }
 
+  Widget _buildClaudioInternalHeader({
+    String? trailing,
+    bool compact = false,
+  }) {
+    return Row(
+      children: [
+        Expanded(child: _buildPixelLogo('Claudio', compact: compact)),
+        if (!compact) ...[
+          _buildMiniCapsule('CHAT', () {
+            setState(() => _verticalPanel = _VerticalDjPanel.chat);
+          }, active: _verticalPanel == _VerticalDjPanel.chat),
+          SizedBox(width: 6),
+          _buildMiniCapsule('ON', () {
+            setState(() => _verticalPanel = _VerticalDjPanel.player);
+          }, active: _verticalPanel == _VerticalDjPanel.player),
+          SizedBox(width: 6),
+          _buildMiniCapsule('ME', () {
+            setState(() => _verticalPanel = _VerticalDjPanel.profile);
+          }, active: _verticalPanel == _VerticalDjPanel.profile),
+          SizedBox(width: 8),
+          _buildThemeSegment(),
+        ],
+        if (trailing != null) ...[
+          SizedBox(width: 10),
+          Text(
+            trailing,
+            style: TextStyle(
+              color: AppColors.primaryText,
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildOnAirBadge() {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Color(0xFF29FFB8).withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Color(0xFF29FFB8).withValues(alpha: 0.24)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(
+              color: Color(0xFF29FFB8),
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: Color(0xFF29FFB8).withValues(alpha: 0.6),
+                  blurRadius: 10,
+                ),
+              ],
+            ),
+          ),
+          SizedBox(width: 7),
+          Text(
+            'ON AIR',
+            style: TextStyle(
+              color: Color(0xFF29FFB8),
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.3,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMiniCapsule(
+    String label,
+    VoidCallback onTap, {
+    bool active = false,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: onTap,
+      child: Container(
+        height: 28,
+        padding: EdgeInsets.symmetric(horizontal: 10),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: active
+              ? Colors.white.withValues(alpha: AppColors.isDark ? 0.16 : 0.72)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: active ? AppColors.primaryBtn : AppColors.borderColor,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: active ? AppColors.primaryText : AppColors.secondaryText,
+            fontSize: 9,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0.9,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTerminalChat(String intro) {
+    final messages = _radioChatMessages.take(80).toList();
+    if (messages.isEmpty) {
+      messages.add({
+        'role': 'assistant',
+        'content': intro,
+      });
+    }
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(14, 14, 14, 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: AppColors.isDark ? 0.36 : 0.08),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: ListView.builder(
+        controller: _radioChatScrollController,
+        padding: EdgeInsets.zero,
+        itemCount: messages.length,
+        itemBuilder: (context, index) {
+          final message = messages[index];
+          final isUser = message['role']?.toString() == 'user';
+          return Align(
+            alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+            child: Container(
+              constraints: BoxConstraints(maxWidth: 360),
+              margin: EdgeInsets.only(bottom: 12),
+              padding: EdgeInsets.fromLTRB(13, 11, 13, 12),
+              decoration: BoxDecoration(
+                color: isUser
+                    ? Color(0xFF1B1414)
+                    : (AppColors.isDark ? Color(0xFF030305) : Colors.white),
+                borderRadius: BorderRadius.circular(isUser ? 15 : 4),
+                border: Border.all(
+                  color: isUser
+                      ? AppColors.primaryBtn.withValues(alpha: 0.30)
+                      : Colors.white
+                          .withValues(alpha: AppColors.isDark ? 0.08 : 0.6),
+                ),
+                boxShadow: [
+                  if (!isUser)
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.22),
+                      blurRadius: 18,
+                      offset: Offset(0, 8),
+                    ),
+                ],
+              ),
+              child: Text(
+                message['content']?.toString() ?? '',
+                style: TextStyle(
+                  color: isUser
+                      ? AppColors.primaryText
+                      : (AppColors.isDark ? Colors.white : Color(0xFF111111)),
+                  fontSize: 14,
+                  height: 1.42,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildTerminalInput(Map<String, dynamic>? latest, bool live) {
+    return Container(
+      padding: EdgeInsets.fromLTRB(14, 3, 6, 3),
+      decoration: BoxDecoration(
+        color: AppColors.isDark ? Color(0xFF030305) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _radioChatController,
+              minLines: 1,
+              maxLines: 3,
+              onSubmitted: (_) => _sendRadioChat(),
+              style: TextStyle(color: AppColors.primaryText, fontSize: 13),
+              decoration: InputDecoration(
+                border: InputBorder.none,
+                hintText: 'Say something to the DJ...',
+                hintStyle: TextStyle(
+                  color: AppColors.secondaryText,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: '发送',
+            onPressed: _radioChatSending ? null : _sendRadioChat,
+            icon: _radioChatSending
+                ? SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: _buildTinyLoading(AppColors.primaryBtn),
+                  )
+                : Icon(Icons.arrow_upward_rounded, color: AppColors.primaryBtn),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildVerticalChatPage({required Key key}) {
     final latest = _radioEpisodes.isNotEmpty ? _radioEpisodes.first : null;
     final tracks = _radioEpisodeTracks(latest);
@@ -796,52 +1010,47 @@ class _DesktopMusicHomeState extends State<DesktopMusicHome> {
         child: Column(
           children: [
             Container(
-              height: 220,
+              height: 300,
               padding: EdgeInsets.fromLTRB(20, 18, 20, 0),
-              color: AppColors.isDark ? Color(0xFF06070A) : Color(0xFFF8F8F8),
+              decoration: BoxDecoration(
+                color: AppColors.isDark ? Color(0xFF050509) : Color(0xFFF3F0ED),
+                border: Border(
+                  bottom: BorderSide(color: AppColors.borderColor),
+                ),
+              ),
               child: Column(
                 children: [
-                  Row(
-                    children: [
-                      Expanded(child: _buildPixelLogo('Claudio')),
-                      Text(
-                        _clockLabel(),
-                        style: TextStyle(
-                          color: AppColors.primaryText,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ],
-                  ),
+                  _buildClaudioInternalHeader(),
                   Spacer(),
                   Text(
                     _largeClockLabel(),
                     style: TextStyle(
                       color: AppColors.primaryText,
-                      fontSize: 62,
+                      fontSize: 72,
                       fontWeight: FontWeight.w900,
                       letterSpacing: 2,
                     ),
                   ),
                   SizedBox(height: 2),
                   Text(
-                    'Monday · ON AIR',
+                    'Monday',
                     style: TextStyle(
                       color: AppColors.secondaryText,
-                      fontSize: 12,
+                      fontSize: 13,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
-                  SizedBox(height: 22),
+                  SizedBox(height: 8),
+                  _buildOnAirBadge(),
+                  SizedBox(height: 28),
                 ],
               ),
             ),
             Container(
-              height: 78,
+              height: 112,
               padding: EdgeInsets.symmetric(horizontal: 18),
               decoration: BoxDecoration(
-                color: AppColors.isDark ? Color(0xFF101015) : Color(0xFFFFFFFF),
+                color: AppColors.isDark ? Color(0xFF0D0D12) : Color(0xFFFFFFFF),
                 border: Border.symmetric(
                   horizontal: BorderSide(color: AppColors.borderColor),
                 ),
@@ -887,6 +1096,15 @@ class _DesktopMusicHomeState extends State<DesktopMusicHome> {
                       ],
                     ),
                   ),
+                  _buildMiniCapsule('HIDE', () {
+                    setState(() => _verticalPanel = _VerticalDjPanel.player);
+                  }),
+                  SizedBox(width: 6),
+                  _buildMiniCapsule('FAV', () {
+                    final track = _globalPlayerStore.currentTrack;
+                    if (track != null) _toggleFavorite(track);
+                  }),
+                  SizedBox(width: 6),
                   _buildRoundPlayerButton(
                     icon: Icons.skip_previous_rounded,
                     onTap: _musicController.playPrevious,
@@ -907,13 +1125,38 @@ class _DesktopMusicHomeState extends State<DesktopMusicHome> {
             ),
             Expanded(
               child: Padding(
-                padding: EdgeInsets.fromLTRB(18, 18, 18, 12),
+                padding: EdgeInsets.fromLTRB(18, 0, 18, 12),
                 child: Column(
                   children: [
-                    Expanded(child: _buildClaudioEmbeddedChat(intro)),
+                    SizedBox(
+                      height: 32,
+                      child: Row(
+                        children: [
+                          Text(
+                            'QUEUE',
+                            style: TextStyle(
+                              color: AppColors.secondaryText,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                          Spacer(),
+                          Text(
+                            '${tracks.length} TRACKS',
+                            style: TextStyle(
+                              color: AppColors.secondaryText,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(child: _buildTerminalChat(intro)),
                     SizedBox(height: 12),
-                    _buildClaudioEmbeddedInput(
-                        latest, _musicController.isPlaying),
+                    _buildTerminalInput(latest, _musicController.isPlaying),
                   ],
                 ),
               ),
@@ -942,25 +1185,15 @@ class _DesktopMusicHomeState extends State<DesktopMusicHome> {
         child: Column(
           children: [
             Container(
-              height: 245,
+              height: 270,
               padding: EdgeInsets.fromLTRB(20, 18, 20, 0),
               color: AppColors.isDark ? Color(0xFF050608) : Color(0xFFF7F7F5),
               child: Column(
                 children: [
-                  Row(
-                    children: [
-                      Expanded(child: _buildPixelLogo('Claudio')),
-                      Text(
-                        _musicController.formatDuration(
-                          _musicController.currentPosition,
-                        ),
-                        style: TextStyle(
-                          color: AppColors.primaryText,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ],
+                  _buildClaudioInternalHeader(
+                    trailing: _musicController.formatDuration(
+                      _musicController.currentPosition,
+                    ),
                   ),
                   Spacer(),
                   SizedBox(
@@ -1046,15 +1279,17 @@ class _DesktopMusicHomeState extends State<DesktopMusicHome> {
       key: key,
       decoration: _verticalShellDecoration(),
       child: Padding(
-        padding: EdgeInsets.fromLTRB(28, 30, 28, 26),
+        padding: EdgeInsets.fromLTRB(26, 24, 26, 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            _buildClaudioInternalHeader(compact: true),
+            SizedBox(height: 30),
             Row(
               children: [
                 Container(
-                  width: 92,
-                  height: 92,
+                  width: 102,
+                  height: 102,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: RadialGradient(
@@ -1075,15 +1310,36 @@ class _DesktopMusicHomeState extends State<DesktopMusicHome> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildPixelLogo('Claudio'),
-                      SizedBox(height: 8),
                       Text(
-                        '一开机我就打碟',
+                        'Claudio',
                         style: TextStyle(
-                          color: Color(0xFF29FFB8),
-                          fontSize: 13,
+                          color: AppColors.primaryText,
+                          fontSize: 44,
                           fontWeight: FontWeight.w900,
+                          letterSpacing: 1.8,
                         ),
+                      ),
+                      SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: Color(0xFF29FFB8),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            '一开机我就打碟',
+                            style: TextStyle(
+                              color: Color(0xFF29FFB8),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -1091,28 +1347,41 @@ class _DesktopMusicHomeState extends State<DesktopMusicHome> {
               ],
             ),
             SizedBox(height: 34),
-            Text(
-              '徐郭鹏的私人 DJ，会记住你的 taste.md。',
-              style: TextStyle(
-                color: AppColors.primaryText,
-                fontSize: 18,
-                height: 1.45,
-                fontWeight: FontWeight.w800,
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: Colors.black
+                    .withValues(alpha: AppColors.isDark ? 0.18 : 0.04),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: AppColors.borderColor),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '徐郭鹏的私人 DJ，会打碟的 taste.md',
+                    style: TextStyle(
+                      color: AppColors.primaryText,
+                      fontSize: 18,
+                      height: 1.45,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  SizedBox(height: 10),
+                  Text(
+                    'Your mood is my prompt.\nI hate algorithm. I have taste.',
+                    style: TextStyle(
+                      color: AppColors.secondaryText,
+                      fontSize: 15,
+                      height: 1.55,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ),
             ),
-            SizedBox(height: 8),
-            Text(
-              'Your mood is my prompt.\nI hate algorithm. I have taste.',
-              style: TextStyle(
-                color: AppColors.secondaryText,
-                fontSize: 15,
-                height: 1.55,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            SizedBox(height: 30),
-            Divider(color: AppColors.borderColor),
-            SizedBox(height: 24),
+            SizedBox(height: 26),
             Row(
               children: [
                 _buildProfileStat('ON AIR', '24/7'),
@@ -1120,7 +1389,7 @@ class _DesktopMusicHomeState extends State<DesktopMusicHome> {
                 _buildProfileStat('MEMORY', '${remembered.length}'),
               ],
             ),
-            SizedBox(height: 30),
+            SizedBox(height: 28),
             Text(
               'TASTE TAGS',
               style: TextStyle(
@@ -1185,25 +1454,26 @@ class _DesktopMusicHomeState extends State<DesktopMusicHome> {
     );
   }
 
-  Widget _buildPixelLogo(String label) {
+  Widget _buildPixelLogo(String label, {bool compact = false}) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: 34,
-          height: 34,
+          width: compact ? 28 : 34,
+          height: compact ? 28 : 34,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: AppColors.primaryBtn.withValues(alpha: 0.92),
           ),
-          child: Icon(Icons.radio_rounded, color: Colors.white, size: 18),
+          child: Icon(Icons.radio_rounded,
+              color: Colors.white, size: compact ? 15 : 18),
         ),
-        SizedBox(width: 10),
+        SizedBox(width: compact ? 8 : 10),
         Text(
           label,
           style: TextStyle(
             color: AppColors.primaryText,
-            fontSize: 30,
+            fontSize: compact ? 22 : 30,
             fontWeight: FontWeight.w900,
             letterSpacing: 1.4,
           ),
