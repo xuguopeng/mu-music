@@ -102,8 +102,8 @@ flutter:
   #         weight: 700
   #
   fonts:
-    - family: CustomFont  # 自定义字体名称，可以根据需要更改
+    - family: LXGWWenKai
       fonts:
-        - asset: assets/fonts/1.ttf
+        - asset: assets/fonts/LXGWWenKai-Regular.ttf
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package

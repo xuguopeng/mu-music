@@ -52,7 +52,7 @@ class _MyAppState extends State<MyApp> {
               brightness:
                   themeStore.darkMode ? Brightness.dark : Brightness.light,
             ),
-            fontFamily: 'CustomFont',
+            fontFamily: 'LXGWWenKai',
             useMaterial3: false,
           ),
           home: Scaffold(
