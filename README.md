@@ -175,6 +175,8 @@ SQMUSIC_PASSWORD=
 
 ## 开源边界
 
+本项目采用 [GPL-3.0 License](https://github.com/xuguopeng/mu-write/blob/main/LICENSE) 开源。您可以自由地运行、研究、分享和修改代码，但基于本项目修改并分发的新软件也必须同样遵循 GPL-3.0 协议开源。
+
 这个仓库只保留干净的 NAS 音乐服务、Flutter 客户端和接口框架。
 
 不要提交：

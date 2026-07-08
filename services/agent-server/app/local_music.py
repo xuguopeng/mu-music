@@ -32,6 +32,19 @@ AUDIO_EXTENSIONS = {".mp3", ".flac", ".m4a", ".mp4", ".aac", ".wav", ".ogg"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 LYRIC_EXTENSIONS = {".lrc", ".txt"}
 COVER_FILE_NAMES = {"cover", "folder", "front", "album", "封面"}
+MEDIA_TYPES = {
+    ".mp3": "audio/mpeg",
+    ".flac": "audio/flac",
+    ".m4a": "audio/mp4",
+    ".mp4": "audio/mp4",
+    ".aac": "audio/aac",
+    ".wav": "audio/wav",
+    ".ogg": "audio/ogg",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+}
 SCAN_STATE_LOCK = threading.RLock()
 SCAN_STATE: dict[str, Any] = {
     "status": "idle",
@@ -1390,7 +1403,7 @@ def read_track_metadata(path: Path, cover_dir: Path) -> dict[str, Any]:
     stat = path.stat()
     audio = safe_mutagen_file(path)
     tags = getattr(audio, "tags", None)
-    duration = safe_duration_seconds(audio)
+    duration = safe_duration_seconds(audio) or fallback_audio_duration_seconds(path)
     fallback = fallback_metadata_from_path(path)
     title = first_tag(tags, "title", "TIT2", "\xa9nam") or fallback["title"]
     artist = first_tag(tags, "artist", "TPE1", "\xa9ART") or fallback["artist"]
@@ -1430,7 +1443,7 @@ def fallback_track_metadata(path: Path) -> dict[str, Any]:
         "artist": clean_text(fallback["artist"]),
         "album": clean_text(fallback["album"]),
         "album_artist": "",
-        "duration_seconds": 0,
+        "duration_seconds": fallback_audio_duration_seconds(path),
         "track_number": 0,
         "disc_number": 0,
         "year": "",
@@ -1547,6 +1560,7 @@ def track_row_to_api(row: dict[str, Any]) -> dict[str, Any]:
     album_id = normalized_key(album)
     artist_id = normalized_key(artist)
     cover_url = f"/v1/music/covers/{row['id']}" if row.get("cover_path") else ""
+    duration_seconds = api_duration_seconds(row)
     return {
         "id": row["id"],
         "title": title,
@@ -1554,8 +1568,8 @@ def track_row_to_api(row: dict[str, Any]) -> dict[str, Any]:
         "albumArtist": artist,
         "albumTitle": album,
         "albumId": album_id,
-        "durationSeconds": row["duration_seconds"],
-        "dt": int(row["duration_seconds"] or 0) * 1000,
+        "durationSeconds": duration_seconds,
+        "dt": duration_seconds * 1000,
         "fileName": row["file_name"],
         "fileFormat": row["file_format"],
         "filePath": row["source_path"],
@@ -1591,6 +1605,17 @@ def track_row_to_api(row: dict[str, Any]) -> dict[str, Any]:
             "picUrl": cover_url,
         },
     }
+
+
+def api_duration_seconds(row: dict[str, Any]) -> int:
+    duration = int(row.get("duration_seconds") or 0)
+    if duration > 0:
+        return duration
+    source_path = row.get("source_path") or ""
+    if not source_path:
+        return 0
+    path = Path(source_path)
+    return fallback_audio_duration_seconds(path)
 
 
 def playlist_row_to_api(row: dict[str, Any]) -> dict[str, Any]:
@@ -1751,6 +1776,40 @@ def safe_duration_seconds(audio: Any) -> int:
     return max(0, int(duration))
 
 
+def fallback_audio_duration_seconds(path: Path) -> int:
+    if path.suffix.lower() == ".flac":
+        return flac_streaminfo_duration_seconds(path)
+    return 0
+
+
+def flac_streaminfo_duration_seconds(path: Path) -> int:
+    try:
+        with path.open("rb") as file:
+            if file.read(4) != b"fLaC":
+                return 0
+            while True:
+                header = file.read(4)
+                if len(header) != 4:
+                    return 0
+                is_last = bool(header[0] & 0x80)
+                block_type = header[0] & 0x7F
+                block_length = int.from_bytes(header[1:4], "big")
+                block = file.read(block_length)
+                if len(block) != block_length:
+                    return 0
+                if block_type == 0 and block_length >= 18:
+                    packed = int.from_bytes(block[10:18], "big")
+                    sample_rate = (packed >> 44) & 0xFFFFF
+                    total_samples = packed & 0xFFFFFFFFF
+                    if sample_rate > 0 and total_samples > 0:
+                        return max(0, int(total_samples / sample_rate))
+                    return 0
+                if is_last:
+                    return 0
+    except OSError:
+        return 0
+
+
 def extract_cover(path: Path, audio: Any, cover_dir: Path) -> str:
     if not audio or not getattr(audio, "tags", None):
         return ""
@@ -1820,6 +1879,9 @@ def normalized_key(value: str) -> str:
 
 
 def guess_media_type(path: Path) -> str:
+    explicit = MEDIA_TYPES.get(path.suffix.lower())
+    if explicit:
+        return explicit
     guessed, _ = mimetypes.guess_type(path.name)
     return guessed or "application/octet-stream"
 

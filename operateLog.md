@@ -293,3 +293,9 @@
 - NAS 扫描报告语义修正：线上 `v0.4.2` 验证通过，增量扫描后曲库从 22 首变为 382 首，`/v1/music/api/tracks?keyword=后来` 已能返回《后来 - 刘若英》，音频流 `/v1/music/audio/51276ab09eb94ce85edae9b5` 返回 `206 Partial Content`，说明下载文件已可播放；但降级导入成功的文件仍计入 `errorCount`，扫描报告看起来像失败。本轮将“元数据读取失败但已按文件名导入”的记录移到 `fallbacks/fallbackCount`，真正导入失败才进入 `errors/errorCount`，服务版本提升到 `v0.4.3`。
 
 - Flutter 客户端正式命名和 release 打包：应用展示名改为 `Migi`，macOS/Android/iOS/Web 图标使用新的 Migi 图标资源，macOS bundle id 与 Android application id 统一为 `com.xuguopeng.migi`。验证：`flutter analyze --no-fatal-infos --no-fatal-warnings` 通过；`flutter build macos --release` 成功生成 `clients/mu-music/build/macos/Build/Products/Release/Migi.app`；`flutter build apk --release` 成功生成 `clients/mu-music/build/app/outputs/flutter-apk/app-release.apk`；并额外整理 `clients/mu-music/build/distribution/Migi-macos-release.zip` 和 `clients/mu-music/build/distribution/Migi-android-release.apk` 方便安装分发。
+
+- NAS FLAC 播放修复：线上排查《后来》音频流可返回 `206 Partial Content` 且文件头为 `fLaC`，但服务端响应 `content-type: application/octet-stream`，同时数据库 `durationSeconds=0`；macOS release 的 AVPlayer 对无扩展名 URL + octet-stream 远程 FLAC 识别不稳定，表现为客户端选中歌曲但停在 `0:00` 不播放。本轮服务版本提升到 `v0.4.4`，为本地音频增加显式 MIME 类型映射（`.flac` 返回 `audio/flac`），并在 Mutagen 读不出时长时从 FLAC STREAMINFO 兜底解析时长；即使旧库里时长仍为 0，接口返回歌曲详情时也会临时计算正确时长。验证：`python3 -m py_compile services/agent-server/app/*.py` 通过，服务端单测 19 个通过。
+
+- macOS release 播放权限修复：确认 NAS 已是 `v0.4.4` 且《后来》音频流返回 `content-type: audio/flac`，但正式包仍不播放；对比发现 Debug/Profile entitlements 有 `com.apple.security.network.server`，Release entitlements 只有 `network.client`。`just_audio` 在 macOS 播放带 Basic Auth header 的音频时会用本地代理注入请求头，Release 沙盒缺 `network.server` 会阻止该代理工作。已给 `macos/Runner/Release.entitlements` 增加 `network.server` 并重新构建 `Migi.app`，codesign 验证新包同时包含 `network.client` 和 `network.server`；重新生成 `clients/mu-music/build/distribution/Migi-macos-release.zip`。
+
+- 开源协议补充：根目录新增 `LICENSE`，采用 GPL-3.0 License；根 README 的“开源边界”增加中文协议说明，明确允许运行、研究、分享和修改代码，但基于本项目修改并分发的新软件也必须同样遵循 GPL-3.0 协议开源。
